@@ -8,7 +8,13 @@
  * now.
  */
 
-import { SitepingAuthError, SitepingError, SitepingNetworkError, SitepingValidationError } from "./errors.js";
+import {
+  SitepingAuthError,
+  SitepingError,
+  SitepingNetworkError,
+  SitepingUnsupportedError,
+  SitepingValidationError,
+} from "./errors.js";
 import type { FeedbackQuery } from "./types.js";
 
 /**
@@ -33,7 +39,9 @@ export function feedbackQueryToSearchParams(query: FeedbackQuery): URLSearchPara
  * Map a non-OK `Response` to the appropriate typed error:
  *   - 401 / 403 → `SitepingAuthError`
  *   - other 4xx → `SitepingValidationError`
- *   - 5xx (or anything else) → generic `SitepingError` (code `"SERVER"`)
+ *   - 501 → `SitepingUnsupportedError` (the deployment can't serve this at
+ *     all — callers degrade the feature rather than retry)
+ *   - other 5xx (or anything else) → generic `SitepingError` (code `"SERVER"`)
  *
  * The response body is consumed via `.text()` so the caller keeps the
  * server-supplied message in the thrown error; `.text()` failures fall back
@@ -44,6 +52,7 @@ export async function errorFromResponse(response: Response, label: string): Prom
   const detail = text ? `${response.status} ${text}` : `${response.status}`;
   const message = `${label}: ${detail}`;
   if (response.status === 401 || response.status === 403) return new SitepingAuthError(message);
+  if (response.status === 501) return new SitepingUnsupportedError(message);
   if (response.status >= 400 && response.status < 500) return new SitepingValidationError(message);
   return new SitepingError(message, "SERVER", false);
 }

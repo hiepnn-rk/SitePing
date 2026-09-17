@@ -34,6 +34,7 @@ function makeFeedback(overrides: Partial<FeedbackResponse> = {}): FeedbackRespon
     annotations: [],
     urlPattern: null,
     screenshotUrl: null,
+    comments: [],
     screenshotRegion: null,
     diagnostics: null,
     ...overrides,

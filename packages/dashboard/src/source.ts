@@ -1,4 +1,7 @@
 import {
+  type CommentCreateInput,
+  type CommentRecord,
+  type CommentResponse,
   errorFromResponse,
   type FeedbackPage,
   type FeedbackQuery,
@@ -30,7 +33,15 @@ function reviveRecord(response: FeedbackResponse): FeedbackRecord {
       ...annotation,
       createdAt: new Date(annotation.createdAt),
     })),
+    // Absent on a response from a server that predates comments — the inbox
+    // always renders a thread, empty or not.
+    comments: (response.comments ?? []).map(reviveComment),
   };
+}
+
+/** Convert a serialized `CommentResponse` into a `CommentRecord` with a real `Date`. */
+function reviveComment(response: CommentResponse): CommentRecord {
+  return { ...response, createdAt: new Date(response.createdAt) };
 }
 
 /** Parse a JSON body and assert its TypeScript shape — server-side Zod is the source of truth. */
@@ -106,6 +117,27 @@ export function createEndpointSource(options: EndpointSourceOptions): InboxSourc
         body: JSON.stringify({ id, projectName }),
       });
     },
+
+    async addComment(feedbackId: string, projectName: string, input: CommentCreateInput): Promise<CommentRecord> {
+      // Same endpoint as a feedback submission — `feedbackId` in the body is
+      // what routes it to the comment resource. A 501 comes back as a
+      // `SitepingUnsupportedError`, which the inbox reads as "this backend
+      // has no comments" rather than a transient failure.
+      const response = await request("Failed to post comment", endpoint, {
+        method: "POST",
+        headers: await buildHeaders(true),
+        body: JSON.stringify({ feedbackId, projectName, ...input }),
+      });
+      return reviveComment(await parseJsonAs<CommentResponse>(response));
+    },
+
+    async removeComment(feedbackId: string, commentId: string, projectName: string): Promise<void> {
+      await request("Failed to delete comment", endpoint, {
+        method: "DELETE",
+        headers: await buildHeaders(true),
+        body: JSON.stringify({ feedbackId, commentId, projectName }),
+      });
+    },
   };
 }
 
@@ -131,5 +163,28 @@ export function createStoreSource(store: SitepingStore): InboxSource {
     async remove(id: string, _projectName: string): Promise<void> {
       await store.deleteFeedback(id);
     },
+    // Store mode knows up front whether comments exist, so the capability is
+    // expressed the way the source interface does it: by declaring the
+    // methods or not. The inbox reads that as `canComment` and renders a
+    // read-only thread when they're absent — no failed post required.
+    ...(store.addComment
+      ? {
+          addComment(feedbackId: string, _projectName: string, input: CommentCreateInput): Promise<CommentRecord> {
+            // Safe: guarded by the same `store.addComment` check.
+            return (store.addComment as NonNullable<SitepingStore["addComment"]>).call(store, feedbackId, input);
+          },
+        }
+      : {}),
+    ...(store.deleteComment
+      ? {
+          async removeComment(feedbackId: string, commentId: string, _projectName: string): Promise<void> {
+            await (store.deleteComment as NonNullable<SitepingStore["deleteComment"]>).call(
+              store,
+              feedbackId,
+              commentId,
+            );
+          },
+        }
+      : {}),
   };
 }

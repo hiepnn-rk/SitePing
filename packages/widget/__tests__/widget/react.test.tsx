@@ -37,6 +37,8 @@ beforeEach(() => {
       close: vi.fn(),
       refresh: vi.fn(),
       focusFeedback: vi.fn(() => true),
+      setLocale: vi.fn(() => Promise.resolve()),
+      getLocale: vi.fn(() => "en"),
       on: <K extends string>(event: K, listener: Listener) => {
         let set = listeners.get(event);
         if (!set) {

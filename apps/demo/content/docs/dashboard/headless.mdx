@@ -29,6 +29,7 @@ The options are a union over the three source modes: supply **exactly one** of `
 | `pageSize` | `number` | `50` | Clamped to 1–100 |
 | `onStatusChange` | `(feedback, previousStatus) => void` | — | After the server confirms |
 | `onDelete` | `(feedback) => void` | — | After the server confirms |
+| `author` | `{ name, email? }` | — | Who replies from this inbox — see [Comments](/docs/comments). Without it `canComment` stays `false` |
 | `onError` | `(error) => void` | — | Every failed load or mutation |
 
 Each mode is exported on its own — `InboxEndpointOptions`, `InboxStoreOptions`, `InboxCustomSourceOptions`, the shared `InboxSharedOptions`, and the `UseSitepingInboxOptions` union — so a wrapper component can accept just the mode it supports. Plain-JavaScript callers get the old behavior: no source at all still throws at render.
@@ -42,6 +43,8 @@ Each mode is exported on its own — `InboxEndpointOptions`, `InboxStoreOptions`
 **Focus & drawer** — `focusedId`, `focus(id)`, `focusNext()`, `focusPrev()`, `openedId`, `opened` (the open record — it stays available even if a filter removes its row), `openFeedback(id)`, `closeFeedback()`.
 
 **Mutations** — `changeStatus(id, status)`, `deleteFeedback(id)`, `pendingUndo`, `undo()`.
+
+**Comments** — `canComment`, `addComment(id, body)`, `deleteComment(id, commentId)`. See [Comments](/docs/comments); unlike the mutations above, these are not optimistic — they resolve once the store has the reply.
 
 ## `view` — skip the flag algebra
 
@@ -80,6 +83,8 @@ The UI updates immediately; if the server rejects, the hook rolls everything bac
 ```
 
 Only the last status change is undoable (`pendingUndo` + `undo()`); delete is permanent, so gate it behind your own confirmation UI.
+
+Comment writes are the exception: they await the server and commit the persisted reply, so `addComment` never shows a message the store does not have. They re-throw the same way.
 
 ## Pagination
 

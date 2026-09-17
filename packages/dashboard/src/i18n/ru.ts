@@ -65,6 +65,18 @@ export const ru: Translations = {
   "drawer.deleteConfirm": "Удалить навсегда? Это действие необратимо.",
   "drawer.deleteYes": "Удалить",
 
+  // Discussion thread
+  "comments.title": "Обсуждение",
+  "comments.empty": "Пока нет ответов.",
+  "comments.placeholder": "Ответить клиенту…",
+  "comments.submit": "Отправить",
+  "comments.sending": "Отправка…",
+  "comments.error": "Не удалось отправить ответ",
+  "comments.hint": "⌘/Ctrl + Enter — отправить",
+  "comments.delete": "Удалить ответ",
+  "comments.roleTeam": "Команда",
+  "comments.roleClient": "Клиент",
+
   // Keyboard hints
   "hints.navigate": "навигация",
   "hints.open": "открыть",

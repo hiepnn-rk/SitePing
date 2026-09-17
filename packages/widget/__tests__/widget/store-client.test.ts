@@ -5,6 +5,7 @@ import type {
   FeedbackRecord,
   SitepingStore,
 } from "@siteping/core";
+import { isUnsupported } from "@siteping/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { StoreClient } from "../../src/store-client.js";
 
@@ -20,6 +21,13 @@ function mockStore(): SitepingStore {
     updateFeedback: vi.fn(),
     deleteFeedback: vi.fn(),
     deleteAllFeedbacks: vi.fn(),
+  };
+}
+
+/** A store that also implements the optional comment members. */
+function mockCommentStore(): SitepingStore & { addComment: ReturnType<typeof vi.fn> } {
+  return { ...mockStore(), addComment: vi.fn(), deleteComment: vi.fn() } as SitepingStore & {
+    addComment: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -80,6 +88,7 @@ function makeFeedbackRecord(overrides?: Partial<FeedbackRecord>): FeedbackRecord
     createdAt: now,
     updatedAt: now,
     screenshotUrl: null,
+    comments: [],
     screenshotRegion: null,
     diagnostics: null,
     annotations: [
@@ -366,6 +375,47 @@ describe("StoreClient", () => {
   // -----------------------------------------------------------------------
   // deleteAllFeedbacks
   // -----------------------------------------------------------------------
+
+  // -----------------------------------------------------------------------
+  // addComment
+  // -----------------------------------------------------------------------
+
+  describe("addComment", () => {
+    const input = {
+      body: "Still broken",
+      authorName: "Alice",
+      authorEmail: "alice@test.com",
+      authorRole: "client" as const,
+    };
+
+    it("reports comments as unsupported for a store without addComment", () => {
+      expect(client.supportsComments).toBe(false);
+    });
+
+    it("reports comments as supported once the store implements them", () => {
+      expect(new StoreClient(mockCommentStore(), "test-project").supportsComments).toBe(true);
+    });
+
+    it("delegates to store.addComment and serializes the date", async () => {
+      const commentStore = mockCommentStore();
+      commentStore.addComment.mockResolvedValue({
+        id: "cm-1",
+        feedbackId: "fb-1",
+        ...input,
+        createdAt: now,
+      });
+
+      const comment = await new StoreClient(commentStore, "test-project").addComment("fb-1", input);
+
+      expect(commentStore.addComment).toHaveBeenCalledWith("fb-1", input);
+      expect(comment).toEqual({ id: "cm-1", feedbackId: "fb-1", ...input, createdAt: now.toISOString() });
+    });
+
+    it("throws the same UNSUPPORTED signal the HTTP 501 path produces", async () => {
+      const error = await client.addComment("fb-1", input).catch((e: Error) => e);
+      expect(isUnsupported(error)).toBe(true);
+    });
+  });
 
   describe("deleteAllFeedbacks", () => {
     it("delegates to store.deleteAllFeedbacks", async () => {

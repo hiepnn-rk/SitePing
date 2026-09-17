@@ -41,7 +41,7 @@ export function createArrayStore(): SitepingStore {
 }
 ```
 
-That is a real, fully conformant adapter — it's the dogfood example the kit's own test suite runs the 44 conformance tests against. Swap the three functions for your storage and you're done: [`MemoryStore`](/docs/adapters/memory) and [`LocalStorageStore`](/docs/adapters/localstorage) are this same engine with different primitives.
+That is a real, fully conformant adapter — it's the dogfood example the kit's own test suite runs the 50 conformance tests against. Swap the three functions for your storage and you're done: [`MemoryStore`](/docs/adapters/memory) and [`LocalStorageStore`](/docs/adapters/localstorage) are this same engine with different primitives.
 
 **The three primitives:**
 
@@ -127,9 +127,29 @@ async verifyProjectOwnership(id: string, projectName: string): Promise<boolean> 
 
 Implement it whenever your store serves more than one project. When it's absent, handlers skip the check and trust the `id` alone.
 
+## Comments are opt-in too
+
+`addComment` and `deleteComment` are the other two optional members — the [discussion thread](/docs/comments) on a feedback. Leaving them out is a valid, conformant store: the HTTP handler answers `501`, and the widget and dashboard render threads read-only instead of offering a composer that cannot work.
+
+```ts
+async addComment(feedbackId: string, data: CommentCreateInput): Promise<CommentRecord> {
+  // Throw StoreNotFoundError when the feedback does not exist.
+  return db.comment.create({ data: { feedbackId, ...data } });
+}
+
+async deleteComment(feedbackId: string, commentId: string): Promise<void> {
+  // Both ids: handlers authorize against the feedback, so a comment from
+  // another thread must read as "not found", never as a successful delete.
+  const { count } = await db.comment.deleteMany({ where: { id: commentId, feedbackId } });
+  if (count === 0) throw new StoreNotFoundError();
+}
+```
+
+Comments come back on the feedback itself (`FeedbackRecord.comments`, oldest first), so `getFeedbacks` and `findByClientId` must include the thread — `[]` when there is none. `createCollectionStore` handles all of this for snapshot backends, and `buildCommentRecord(input, { id, feedbackId })` builds the record for query backends.
+
 ## Prove it: the conformance suite
 
-The same suite the first-party adapters run. Point it at a factory that returns a fresh, empty store and it exercises the whole contract — 44 tests:
+The same suite the first-party adapters run. Point it at a factory that returns a fresh, empty store and it exercises the whole contract — 50 tests:
 
 ```ts
 // __tests__/my-store.test.ts

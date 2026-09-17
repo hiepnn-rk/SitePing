@@ -1,0 +1,126 @@
+---
+title: Commentaires
+description: Transformez un rapport à sens unique en conversation — le client répond dans le widget, votre équipe dans l'inbox.
+---
+
+Un feedback est rarement l'histoire complète. « Le bouton est cassé » appelle un « sur quel navigateur ? », et « corrigé en préprod » appelle un « confirmé, merci ». Chaque feedback porte donc un **fil de discussion** : le client y écrit depuis le widget, votre équipe depuis le dashboard, et les deux voient la même conversation, rattachée à la même annotation.
+
+Rien à installer, rien à activer côté widget — c'est actif par défaut. Côté serveur, une migration suffit (voir plus bas).
+
+## La boucle
+
+| Côté | Qui écrit | Rôle enregistré |
+|---|---|---|
+| Panneau du widget → détail du feedback → **Discussion** | le visiteur du site | `client` |
+| `<SitepingInbox />` → tiroir → **Discussion** | votre équipe | `team` |
+
+Les réponses s'affichent du plus ancien au plus récent, avec auteur, étiquette de rôle et horodatage. `⌘/Ctrl + Entrée` envoie ; Entrée seule continue la saisie.
+
+## Mise en place serveur
+
+Les commentaires ont leur propre table, donc un projet existant a besoin d'une synchronisation :
+
+```bash
+npx @siteping/cli sync   # ajoute SitepingComment + la relation Feedback.comments
+npx prisma db push
+```
+
+En attendant, tout continue de fonctionner : les feedbacks se lisent et s'écrivent comme avant, les fils reviennent vides, et une écriture de commentaire répond `501` au lieu d'échouer bruyamment. Le widget et le dashboard lisent ça comme « pas de commentaires ici » et masquent leur zone de saisie — le fil reste lisible, jamais cassé.
+
+Les configurations sur store (`@siteping/adapter-memory`, `@siteping/adapter-localstorage`) n'ont besoin de rien.
+
+## Widget
+
+Le fil s'affiche dans la vue détail du feedback, sous le message et sa capture :
+
+```ts
+initSiteping({
+  endpoint: "/api/siteping",
+  projectName: "my-project",
+  comments: false, // désactive : ni fil, ni saisie, rien d'affiché
+});
+```
+
+L'auteur est l'identité que le visiteur a déjà donnée en envoyant un feedback (`config.identity`, celle enregistrée, ou la modale — dans cet ordre) : une réponse ne la redemande jamais. Un visiteur qui n'a *jamais* rien envoyé voit la modale à sa première réponse.
+
+```ts
+siteping.on("comment:added", (comment) => {
+  analytics.track("client_replied", { feedbackId: comment.feedbackId });
+});
+```
+
+`onCommentAdded` est le callback de configuration équivalent.
+
+## Dashboard
+
+Répondre suppose de savoir qui répond, donc l'inbox prend un `author` :
+
+```tsx
+<SitepingInbox
+  projects="my-project"
+  endpoint="/api/siteping"
+  apiKey={process.env.SITEPING_API_KEY}
+  author={{ name: session.user.name, email: session.user.email }}
+/>
+```
+
+Sans `author`, le fil est en lecture seule — mieux que d'attribuer une réponse à personne. Avec, le tiroir gagne une zone de saisie et chaque réponse un bouton de suppression.
+
+Le hook headless expose les trois mêmes choses :
+
+```ts
+const inbox = useSitepingInbox({ projects: "my-project", endpoint: "/api/siteping", author });
+
+inbox.canComment;                          // author défini ET source capable de publier
+await inbox.addComment(id, "Corrigé en 1.4.2");
+await inbox.deleteComment(id, commentId);
+```
+
+Contrairement aux changements de statut, les commentaires ne sont **pas** optimistes : `addComment` se résout quand le store a la réponse, et le fil montre exactement ce qui a été persisté. Un échec rejette (après `onError`) et la zone de saisie conserve le texte tapé.
+
+## Les rôles sont vérifiés, pas crus
+
+Le widget publie depuis le navigateur d'un visiteur : le `authorRole` transmis n'est qu'une affirmation. Le handler rétrograde `team` en `client` si la requête ne porte pas la clé d'API :
+
+- **dashboard avec `apiKey`** → réponses enregistrées en `team` ;
+- **dashboard sans `apiKey`** → réponses enregistrées en `client` (l'UI ne peut pas se déclarer équipe) ;
+- **widget** → toujours `client`.
+
+Les emails des auteurs de commentaires sont masqués exactement comme `authorEmail` sur un feedback : un `GET` non authentifié voit `""`, un `GET` authentifié par Bearer voit l'adresse.
+
+Supprimer un commentaire est une opération destructive : elle exige la clé d'API, comme la suppression d'un feedback. C'est pourquoi le widget n'affiche aucun bouton de suppression — côté client, le fil est en ajout seul.
+
+## Format sur le réseau
+
+Les deux opérations passent par l'endpoint déjà monté. Un `feedbackId` dans un corps `POST` en fait un commentaire plutôt qu'un nouveau feedback ; un `commentId` dans un corps `DELETE` en fait un commentaire plutôt qu'un feedback.
+
+```http
+POST /api/siteping
+{ "feedbackId": "ck…", "projectName": "my-project", "body": "Toujours cassé sur Safari",
+  "authorName": "Alice", "authorEmail": "alice@example.com", "authorRole": "client" }
+→ 201 { "id": "cm…", "feedbackId": "ck…", "body": "…", "authorRole": "client", "createdAt": "…" }
+
+DELETE /api/siteping
+{ "feedbackId": "ck…", "commentId": "cm…", "projectName": "my-project" }
+→ 200 { "deleted": true }
+```
+
+Réponses possibles : `404` quand le fil n'existe pas **ou** appartient à un autre projet (les deux sont volontairement indistinguables), `501` quand le store ne gère pas les commentaires, `400` sur un corps vide ou trop long (5 000 caractères max).
+
+Les fils reviennent avec le feedback lui-même : lister ne coûte aucune requête supplémentaire.
+
+```ts
+const { feedbacks } = await store.getFeedbacks({ projectName: "my-project" });
+feedbacks[0].comments; // CommentRecord[], du plus ancien au plus récent
+```
+
+## Contrat de store
+
+`addComment` et `deleteComment` sont des membres optionnels de `SitepingStore` — un adaptateur antérieur aux commentaires respecte toujours l'interface, et leur absence est le signal de capacité que tous les appelants lisent :
+
+```ts
+addComment?(feedbackId: string, data: CommentCreateInput): Promise<CommentRecord>;
+deleteComment?(feedbackId: string, commentId: string): Promise<void>;
+```
+
+`deleteComment` prend les deux identifiants à dessein : les handlers autorisent un appelant sur le *feedback*, donc cadrer la suppression à ce fil rend « mauvais feedback » et « commentaire inconnu » identiques — un `StoreNotFoundError`. Les adaptateurs bâtis sur `createCollectionStore` obtiennent les deux gratuitement, et la [suite de conformité](/fr/docs/adapters/writing-an-adapter) les couvre.

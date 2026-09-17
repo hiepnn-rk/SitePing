@@ -32,6 +32,7 @@ It works with React 18 and 19, ships ESM and CJS, and has zero dependencies besi
 
 | Prop | Type | Default | What it does |
 |---|---|---|---|
+| `author` | `{ name, email? }` | — | Who replies from this inbox. Required to post on a feedback's [discussion thread](/docs/comments) — without it the thread is read-only |
 | `theme` | `"light"` \| `"dark"` \| `"auto"` | `"auto"` | `auto` follows the system preference — live, including mid-session changes |
 | `accentColor` | `string` | `"#0066ff"` | Hex only; every accent shade derives from this one value. See [Theming](/docs/dashboard/theming) |
 | `density` | `"comfortable"` \| `"compact"` | `"comfortable"` | Row height 44 px vs 36 px |
@@ -64,7 +65,7 @@ Four statuses: `open`, `in_progress`, `resolved`, `wont_fix`. The dashboard can 
 
 ## Languages
 
-Same seven built-in locales as the widget (`en`, `fr`, `de`, `es`, `it`, `pt`, `ru`), English bundled, the rest lazy-loaded, BCP-47 tags normalized (`fr-CA` → `fr`).
+Same eight built-in locales as the widget (`en`, `fr`, `de`, `es`, `it`, `pt`, `ru`, `ja`), English bundled, the rest lazy-loaded, BCP-47 tags normalized (`fr-CA` → `fr`).
 
 The dashboard also accepts custom locales at runtime:
 

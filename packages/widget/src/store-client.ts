@@ -1,12 +1,16 @@
 import {
   type AnnotationRecord,
   type AnnotationResponse,
+  type CommentCreateInput,
+  type CommentRecord,
+  type CommentResponse,
   type FeedbackPayload,
   type FeedbackRecord,
   type FeedbackResponse,
   type FeedbackResponseList,
   flattenAnnotation,
   type SitepingStore,
+  SitepingUnsupportedError,
   toFeedbackUpdate,
 } from "@siteping/core";
 import type { GetFeedbacksOptions, WidgetClient } from "./api-client.js";
@@ -19,10 +23,15 @@ import type { GetFeedbacksOptions, WidgetClient } from "./api-client.js";
  * performs: flattening annotations and serializing dates.
  */
 export class StoreClient implements WidgetClient {
+  /** Store mode knows the answer up front: comments exist iff the store implements them. */
+  readonly supportsComments: boolean;
+
   constructor(
     private readonly store: SitepingStore,
     private readonly projectName: string,
-  ) {}
+  ) {
+    this.supportsComments = typeof store.addComment === "function";
+  }
 
   async sendFeedback(payload: FeedbackPayload): Promise<FeedbackResponse> {
     const record = await this.store.createFeedback({
@@ -74,6 +83,16 @@ export class StoreClient implements WidgetClient {
   async deleteAllFeedbacks(projectName: string): Promise<void> {
     await this.store.deleteAllFeedbacks(projectName);
   }
+
+  async addComment(feedbackId: string, input: CommentCreateInput): Promise<CommentResponse> {
+    const add = this.store.addComment;
+    if (!add) {
+      // Same signal the HTTP path produces for a 501, so the panel has one
+      // rule for "this backend has no comments" in both modes.
+      throw new SitepingUnsupportedError("Failed to post comment: this store does not support comments");
+    }
+    return toCommentResponse(await add.call(this.store, feedbackId, input));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -97,9 +116,24 @@ function toResponse(record: FeedbackRecord): FeedbackResponse {
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     annotations: record.annotations.map(toAnnotationResponse),
+    // `comments` may be absent on a snapshot written before comments existed
+    // (a hand-rolled store, or localStorage data from an older release).
+    comments: (record.comments ?? []).map(toCommentResponse),
     screenshotUrl: record.screenshotUrl ?? null,
     screenshotRegion: record.screenshotRegion ?? null,
     diagnostics: record.diagnostics ?? null,
+  };
+}
+
+function toCommentResponse(comment: CommentRecord): CommentResponse {
+  return {
+    id: comment.id,
+    feedbackId: comment.feedbackId,
+    body: comment.body,
+    authorName: comment.authorName,
+    authorEmail: comment.authorEmail,
+    authorRole: comment.authorRole,
+    createdAt: comment.createdAt.toISOString(),
   };
 }
 

@@ -111,6 +111,21 @@ describe("syncPrismaModels", () => {
   // Adding models to an empty schema
   // -----------------------------------------------------------------------
 
+  it("adds the SitepingComment model with its thread index and role default", () => {
+    writeFileSync(schemaPath, MINIMAL_SCHEMA);
+
+    const result = syncPrismaModels(schemaPath);
+
+    expect(result.addedModels).toContain("SitepingComment");
+
+    const output = readFileSync(schemaPath, "utf-8");
+    expect(output).toContain("model SitepingComment");
+    // The feedback side of the relation, so a thread can be `include`d.
+    expect(output).toMatch(/comments\s+SitepingComment\[\]/);
+    expect(output).toMatch(/authorRole\s+String\s+@default\("client"\)/);
+    expect(output).toContain("@@index([feedbackId, createdAt])");
+  });
+
   it("adds both SitepingFeedback and SitepingAnnotation to an empty schema", () => {
     writeFileSync(schemaPath, MINIMAL_SCHEMA);
 

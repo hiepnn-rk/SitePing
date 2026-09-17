@@ -25,6 +25,7 @@ const FEEDBACK: FeedbackRecord = {
   createdAt: new Date("2026-05-14T10:00:00Z"),
   updatedAt: new Date("2026-05-14T10:00:00Z"),
   annotations: [],
+  comments: [],
   screenshotUrl: null,
   screenshotRegion: null,
   diagnostics: null,

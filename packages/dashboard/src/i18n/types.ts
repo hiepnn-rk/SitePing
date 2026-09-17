@@ -69,6 +69,21 @@ export interface Translations {
   "drawer.deleteConfirm": string;
   "drawer.deleteYes": string;
 
+  // Discussion thread
+  "comments.title": string;
+  "comments.empty": string;
+  "comments.placeholder": string;
+  "comments.submit": string;
+  "comments.sending": string;
+  "comments.error": string;
+  /** Keyboard hint under the composer. */
+  "comments.hint": string;
+  "comments.delete": string;
+  /** Role chip on a reply written from the dashboard. */
+  "comments.roleTeam": string;
+  /** Role chip on a reply written from the widget. */
+  "comments.roleClient": string;
+
   // Footer hint bar
   "hints.navigate": string;
   "hints.open": string;

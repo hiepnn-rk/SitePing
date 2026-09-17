@@ -234,6 +234,10 @@ model SitepingFeedback {
 model SitepingAnnotation {
   id String @id @default(cuid())
 }
+
+model SitepingComment {
+  id String @id @default(cuid())
+}
 `,
     );
 

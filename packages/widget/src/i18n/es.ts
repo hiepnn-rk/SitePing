@@ -25,6 +25,7 @@ export const es: Translations = {
   "panel.cancel": "Cancelar",
   "panel.confirmDelete": "Eliminar",
   "panel.loadMore": "Cargar más ({remaining} restantes)",
+  "panel.language": "Idioma",
 
   // Status filter labels
   "panel.statusAll": "Todos",
@@ -74,7 +75,7 @@ export const es: Translations = {
   "identity.title": "Identifícate",
   "identity.nameLabel": "Nombre",
   "identity.namePlaceholder": "Tu nombre",
-  "identity.emailLabel": "Correo electrónico",
+  "identity.emailLabel": "Correo electrónico (opcional)",
   "identity.emailPlaceholder": "tu@email.com",
   "identity.cancel": "Cancelar",
   "identity.submit": "Continuar",
@@ -146,6 +147,17 @@ export const es: Translations = {
   "detail.diagnostics.expand": "Mostrar diagnóstico",
   "detail.diagnostics.collapse": "Ocultar diagnóstico",
   "detail.diagnostics.noEntries": "Sin entradas",
+
+  // Discussion thread
+  "comments.title": "Debate",
+  "comments.empty": "Aún no hay respuestas.",
+  "comments.placeholder": "Escribe una respuesta…",
+  "comments.submit": "Responder",
+  "comments.sending": "Enviando…",
+  "comments.error": "No se pudo enviar tu respuesta",
+  "comments.hint": "⌘/Ctrl + Enter para enviar",
+  "comments.roleTeam": "Equipo",
+  "comments.roleClient": "Cliente",
 
   // Keyboard shortcuts overlay
   "shortcuts.title": "Atajos de teclado",

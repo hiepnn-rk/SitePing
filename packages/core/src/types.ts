@@ -11,8 +11,29 @@ export type SitepingPosition = "bottom-right" | "bottom-left";
 export type SitepingTheme = "light" | "dark" | "auto";
 
 /** Built-in UI locales shipped with the widget. */
-export const BUILTIN_LOCALES = ["en", "fr", "de", "es", "it", "pt", "ru"] as const;
+export const BUILTIN_LOCALES = ["en", "fr", "de", "es", "it", "pt", "ru", "ja"] as const;
 export type BuiltinLocale = (typeof BUILTIN_LOCALES)[number];
+
+/**
+ * Native display name for every built-in locale — what the widget's locale
+ * switcher shows in its option list. Typed `Record<BuiltinLocale, string>`,
+ * so adding a code to {@link BUILTIN_LOCALES} is a compile error until its
+ * label exists here too.
+ *
+ * Names are written in their own language (the convention every language
+ * picker follows): a reader who does not speak the current UI language must
+ * still recognise their own.
+ */
+export const LOCALE_LABELS: Record<BuiltinLocale, string> = {
+  en: "English",
+  fr: "Fran\u00e7ais",
+  de: "Deutsch",
+  es: "Espa\u00f1ol",
+  it: "Italiano",
+  pt: "Portugu\u00eas",
+  ru: "\u0420\u0443\u0441\u0441\u043a\u0438\u0439",
+  ja: "\u65e5\u672c\u8a9e",
+};
 
 /**
  * Locale identifier accepted by the widget. Built-in locales are kept as
@@ -38,7 +59,16 @@ export interface DiagnosticsCaptureOptions {
 /** Identity payload supplied by the host application — bypasses the modal. */
 export interface SitepingIdentity {
   name: string;
-  email: string;
+  /**
+   * Optional — only the name is required to submit a feedback. Omitted (or
+   * empty) means "not provided": the widget sends `authorEmail: ""`, which
+   * every store and the HTTP schema accept, and the dashboard/detail views
+   * already render an author without an address.
+   *
+   * When present it must satisfy {@link EMAIL_PATTERN}; the identity modal
+   * validates against the same pattern the server enforces.
+   */
+  email?: string | undefined;
 }
 
 /** Deep-link configuration — controls how a feedback id is read from the URL. */
@@ -104,8 +134,30 @@ export interface SitepingBaseConfig {
   debug?: boolean | undefined;
   /** Color theme — defaults to 'light' */
   theme?: SitepingTheme | undefined;
-  /** UI locale — defaults to 'en'. Built-in: en, fr, de, es, it, pt (Brazilian), ru. Any other string falls back to English. */
+  /**
+   * UI locale — defaults to 'en'. Built-in: en, fr, de, es, it, pt
+   * (Brazilian), ru, ja. Any other string falls back to English.
+   *
+   * This is the *initial* locale. When {@link SitepingBaseConfig.localeSwitcher}
+   * is enabled, the visitor's own choice (persisted in localStorage) wins
+   * over this value on subsequent loads.
+   */
   locale?: SitepingLocale | undefined;
+  /**
+   * Show a language picker in the feedback panel header so visitors can
+   * switch the widget's UI language themselves.
+   *
+   * - omitted / `false` (default) — no picker; the widget stays on `locale`;
+   * - `true` — picker listing every built-in locale;
+   * - an array — picker listing exactly those locales, in the given order
+   *   (e.g. `["en", "ja"]`). Fewer than two usable entries renders nothing.
+   *
+   * The chosen locale is persisted per browser under `siteping_locale` and
+   * restored on the next load, so a visitor picks their language once.
+   * Switching also fires for hosts driving the widget from code — see
+   * `SitepingInstance.setLocale()`.
+   */
+  localeSwitcher?: boolean | readonly SitepingLocale[] | undefined;
   /**
    * Returns the current page scope for annotations and panel filtering.
    * Called on initial markers load and on `instance.refresh()`.
@@ -255,6 +307,20 @@ export interface SitepingBaseConfig {
    * future enhancement that propagates identity updates without a remount.
    */
   identity?: SitepingIdentity | undefined;
+  /**
+   * Show the discussion thread (and its composer) in the panel's feedback
+   * detail view, so visitors can reply to the project team on their own
+   * report instead of chasing it over email. Defaults to `true`.
+   *
+   * The thread is rendered read-only — composer hidden — whenever the
+   * backend cannot store comments: a `store` without `addComment`, or an
+   * endpoint whose server predates comments (the first failed post hides the
+   * composer for the session). Set `false` to hide the whole section.
+   *
+   * Comments from the widget are always stamped `authorRole: "client"`;
+   * `team` replies come from the dashboard.
+   */
+  comments?: boolean | undefined;
 
   // Events
   /** Called when the feedback panel is opened. */
@@ -263,6 +329,8 @@ export interface SitepingBaseConfig {
   onClose?: (() => void) | undefined;
   /** Called after a feedback is successfully submitted. */
   onFeedbackSent?: ((feedback: FeedbackResponse) => void) | undefined;
+  /** Called after a comment is successfully posted from the widget. */
+  onCommentAdded?: ((comment: CommentResponse) => void) | undefined;
   /**
    * Called when a feedback API call fails.
    *
@@ -357,6 +425,18 @@ export interface SitepingInstance {
    * URL query parameter.
    */
   focusFeedback: (feedbackId: string) => boolean;
+  /**
+   * Switch the widget's UI language at runtime. Loads the locale's
+   * dictionary, re-labels every mounted surface (FAB, annotator, panel,
+   * markers) and persists the choice under `siteping_locale`, the same
+   * storage the in-panel language picker writes.
+   *
+   * Resolves once the dictionary has landed and the UI has been relabelled.
+   * An unknown locale falls back to English, like `config.locale`.
+   */
+  setLocale: (locale: SitepingLocale) => Promise<void>;
+  /** The locale currently rendered — `config.locale`, or the last `setLocale()`/picker choice. */
+  getLocale: () => string;
   /** Subscribe to a public widget event */
   on: <K extends keyof SitepingPublicEvents>(event: K, listener: SitepingPublicEventListener<K>) => SitepingUnsubscribe;
   /** Unsubscribe from a public widget event */
@@ -375,6 +455,8 @@ export type SitepingUnsubscribe = () => void;
 export interface SitepingPublicEvents {
   "feedback:sent": [FeedbackResponse];
   "feedback:deleted": [FeedbackResponse["id"]];
+  /** A comment was posted from the widget's discussion thread. */
+  "comment:added": [CommentResponse];
   /**
    * A feedback API call failed. Same payload contract as
    * `SitepingConfig.onError` — a `SitepingError` subclass in HTTP mode,
@@ -461,6 +543,10 @@ export interface FeedbackCreateInput {
   viewport: string;
   userAgent: string;
   authorName: string;
+  /**
+   * Author email, or `""` when the visitor did not provide one — only the
+   * name is required. Non-empty values satisfy {@link EMAIL_PATTERN}.
+   */
   authorEmail: string;
   clientId: string;
   annotations: AnnotationCreateInput[];
@@ -584,6 +670,10 @@ export interface FeedbackRecord {
    */
   urlPattern: string | null;
   authorName: string;
+  /**
+   * Author email, or `""` when the visitor did not provide one — only the
+   * name is required. Non-empty values satisfy {@link EMAIL_PATTERN}.
+   */
   authorEmail: string;
   viewport: string;
   userAgent: string;
@@ -592,6 +682,11 @@ export interface FeedbackRecord {
   createdAt: Date;
   updatedAt: Date;
   annotations: AnnotationRecord[];
+  /**
+   * Discussion thread on this feedback, oldest first. Empty for a freshly
+   * created feedback, and for stores that don't implement `addComment`.
+   */
+  comments: CommentRecord[];
   /**
    * URL the widget renders as `<img src>`. Either an `https://...` from a
    * configured `ScreenshotStorage`, or a `data:image/jpeg;base64,...` URL
@@ -639,6 +734,66 @@ export interface AnnotationRecord {
   viewportH: number;
   devicePixelRatio: number;
   createdAt: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Comments — the discussion thread hanging off a feedback
+// ---------------------------------------------------------------------------
+
+/**
+ * Who wrote a comment.
+ *
+ * - `client` — the visitor on the reviewed site (widget side). Every
+ *   unauthenticated comment is stamped `client`: HTTP adapters downgrade a
+ *   requested `team` role unless the request carries the API key, so a
+ *   visitor cannot impersonate the project team.
+ * - `team` — the project side (dashboard, or any Bearer-authenticated caller).
+ */
+export const COMMENT_AUTHOR_ROLES = ["client", "team"] as const;
+export type CommentAuthorRole = (typeof COMMENT_AUTHOR_ROLES)[number];
+
+/** A persisted comment record returned by the store. */
+export interface CommentRecord {
+  id: string;
+  /** Feedback this comment belongs to. */
+  feedbackId: string;
+  /** The comment text, as typed. Never empty. */
+  body: string;
+  authorName: string;
+  /**
+   * Author email, or `""` when unknown — the widget's identity modal makes
+   * the email optional, and HTTP adapters redact it for unauthenticated
+   * readers exactly like `FeedbackRecord.authorEmail`.
+   */
+  authorEmail: string;
+  authorRole: CommentAuthorRole;
+  createdAt: Date;
+}
+
+/** Input accepted by `SitepingStore.addComment`. */
+export interface CommentCreateInput {
+  body: string;
+  authorName: string;
+  authorEmail: string;
+  authorRole: CommentAuthorRole;
+}
+
+/**
+ * Payload sent from a client (widget or dashboard) to the server when
+ * posting a comment. `feedbackId` is what distinguishes it from a feedback
+ * submission on the same POST endpoint; `projectName` scopes the write so a
+ * caller cannot comment on another project's feedback.
+ */
+export interface CommentPayload extends CommentCreateInput {
+  feedbackId: string;
+  projectName: string;
+}
+
+/** Payload sent when deleting a single comment. */
+export interface CommentDeletePayload {
+  feedbackId: string;
+  commentId: string;
+  projectName: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -798,6 +953,25 @@ export interface SitepingStore {
    * handlers skip the ownership check and rely on `id` alone.
    */
   verifyProjectOwnership?(id: string, projectName: string): Promise<boolean>;
+  /**
+   * Optional — append a comment to the feedback's thread and return the
+   * persisted record. Throws `StoreNotFoundError` when `feedbackId` does not
+   * exist, `StorePersistenceError` when the write cannot be persisted.
+   *
+   * Optional like {@link SitepingStore.verifyProjectOwnership}: a store that
+   * predates comments (or deliberately doesn't want them) simply omits both
+   * methods, and every caller degrades to a read-only thread — HTTP handlers
+   * answer 501, the widget and the dashboard hide their composer.
+   */
+  addComment?(feedbackId: string, data: CommentCreateInput): Promise<CommentRecord>;
+  /**
+   * Optional — delete one comment. Takes the feedback id as well as the
+   * comment id so the delete stays scoped to a thread the caller has already
+   * been authorized against (handlers check feedback ownership, not comment
+   * ownership). Throws `StoreNotFoundError` when the feedback does not exist
+   * or the comment does not belong to it.
+   */
+  deleteComment?(feedbackId: string, commentId: string): Promise<void>;
 }
 
 /** Payload sent from the widget to the server when submitting feedback. */
@@ -814,6 +988,10 @@ export interface FeedbackPayload {
   viewport: string;
   userAgent: string;
   authorName: string;
+  /**
+   * Author email, or `""` when the visitor did not provide one — only the
+   * name is required. Non-empty values satisfy {@link EMAIL_PATTERN}.
+   */
   authorEmail: string;
   annotations: AnnotationPayload[];
   /** Client-generated UUID for deduplication */
@@ -970,6 +1148,15 @@ export type FeedbackResponse = Prettify<Serialized<Omit<FeedbackRecord, "clientI
  * `createdAt` serialized to an ISO string.
  */
 export type AnnotationResponse = Prettify<Serialized<AnnotationRecord>>;
+
+/**
+ * Comment record as returned by the API — {@link CommentRecord} with
+ * `createdAt` serialized to an ISO string.
+ *
+ * Note: `authorEmail` may be an empty string — HTTP adapters redact it for
+ * unauthenticated requests, like `FeedbackResponse.authorEmail`.
+ */
+export type CommentResponse = Prettify<Serialized<CommentRecord>>;
 
 /** Paginated `FeedbackResponse` shape returned by the API. */
 export interface FeedbackResponseList {

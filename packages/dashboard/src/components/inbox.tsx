@@ -380,6 +380,12 @@ export function SitepingInbox(props: SitepingInboxProps): ReactElement {
               onDelete={(id) => {
                 void deleteFeedback(id);
               }}
+              canComment={state.canComment}
+              // Comment failures surface inline in the thread (the typed text
+              // is still on screen), so these deliberately skip the toast
+              // path `runMutation` drives for status/delete.
+              onAddComment={state.addComment}
+              onDeleteComment={state.deleteComment}
             />
           ) : null}
         </div>

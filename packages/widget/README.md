@@ -45,11 +45,12 @@ No server? Pass `store: new LocalStorageStore()` (from `@siteping/adapter-locals
 ## Highlights
 
 - **DOM-anchored annotations** — CSS selector + XPath + text fallbacks; they survive deploys and layout changes
+- **Two-way discussion** — each feedback carries a thread, so clients answer your questions on their own report instead of over email
 - **Dev-only by default** — hides in production builds (`NODE_ENV`) and under 768 px; `forceShow: true` for staging
 - **Opt-in extras** — screenshots of the annotated area (with `data-siteping-ignore="true"` privacy masking), console/network diagnostics, instant right-click comments that never hijack keyboard or modifier-key menus
 - **Reliable** — retry with backoff plus a localStorage queue; a flaky network never loses a comment
 - **Isolated & light** — closed Shadow DOM, ~30 KB gzip (ESM); panel, screenshot engine, and non-English locales load on demand
-- **7 built-in locales** — en, fr, de, es, it, pt, ru (BCP-47 tags like `fr-CA` resolve automatically)
+- **8 built-in locales** — en, fr, de, es, it, pt, ru, ja (BCP-47 tags like `fr-CA` resolve automatically)
 
 ## Documentation
 

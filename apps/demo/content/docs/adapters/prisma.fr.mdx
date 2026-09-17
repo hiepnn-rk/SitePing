@@ -43,11 +43,13 @@ Tout framework qui parle `Request`/`Response` du Web (Hono, Remix, SvelteKit, �
 - **Les lectures sont publiques par défaut.** Sans `apiKey`, quiconque connaît l'URL peut lister les feedbacks (avec les e-mails masqués — voir plus bas).
 - **Les appels destructifs, non.** PATCH et DELETE répondent `401` sauf si vous définissez un `apiKey` ou vous en désengagez explicitement avec `requireAuthForDestructive: false`. En production, la factory lève au démarrage plutôt que de tourner sans clé.
 - `OPTIONS` est toujours public — les préflights doivent fonctionner.
+- **Un visiteur ne peut pas publier au nom de votre équipe.** Les écritures de [commentaires](/fr/docs/comments) acceptent un `authorRole`, mais `team` est rétrogradé en `client` si la requête ne porte pas la clé d'API.
 
 ### Ce que les réponses exposent
 
 - `clientId` est retiré de **toutes** les réponses.
 - `authorEmail` est vidé sauf si la requête porte un en-tête `Authorization: Bearer` valide. Seule exception : un `POST` réussi renvoie l'e-mail à son auteur.
+- Les e-mails des auteurs de commentaires suivent la même règle — une lecture masquée vide tout le fil, pas seulement le feedback.
 
 ## Référence HTTP
 
@@ -55,10 +57,10 @@ Un endpoint, cinq méthodes. Tous les corps sont en JSON.
 
 | Méthode | Rôle | Succès |
 |---|---|---|
-| `POST` | Créer un feedback (envois du widget) | `201` + l'enregistrement. Un `clientId` rejoué renvoie l'enregistrement existant au lieu d'échouer (et ne notifie jamais les webhooks deux fois) ; un `clientId` déjà utilisé par **un autre** projet est refusé avec `409` |
+| `POST` | Créer un feedback (envois du widget) — ou un [commentaire](/fr/docs/comments), quand le corps porte `feedbackId` | `201` + l'enregistrement. Un `clientId` rejoué renvoie l'enregistrement existant au lieu d'échouer (et ne notifie jamais les webhooks deux fois) ; un `clientId` déjà utilisé par **un autre** projet est refusé avec `409` |
 | `GET` | Lister les feedbacks | `200` + `{ feedbacks, total }`, avec `Cache-Control: private, max-age=5` |
 | `PATCH` | Changer un statut | `200` + l'enregistrement mis à jour |
-| `DELETE` | Supprimer un ou tous | `200` + `{ deleted: true }` |
+| `DELETE` | Supprimer un feedback, tous, ou un [commentaire](/fr/docs/comments) (corps avec `commentId`) | `200` + `{ deleted: true }` |
 | `OPTIONS` | Préflight CORS | `204` |
 
 **Paramètres de requête du GET :** `projectName` (obligatoire), `page` (défaut 1), `limit` (défaut 50, max 100), `type`, `status`, `statuses` (liste séparée par des virgules, max 4 — ex. `statuses=open,in_progress`), `search`, `url`, `urlPattern`.
@@ -67,11 +69,13 @@ Un endpoint, cinq méthodes. Tous les corps sont en JSON.
 
 **Corps du DELETE :** `{ id, projectName }` pour un enregistrement, ou `{ projectName, deleteAll: true }` pour tout le projet.
 
-**Erreurs :** JSON invalide → `400 { error }` ; échec de validation → `400 { errors: [{ field, message }] }` ; id inconnu → `404` ; `clientId` appartenant à un autre projet → `409 { error }` ; table manquante → `500` avec une indication d'exécuter `npx prisma db push` ; tout le reste → `500 { error: "Internal server error" }`.
+**Corps des commentaires :** `POST { feedbackId, projectName, body, authorName, authorEmail, authorRole }` ajoute au fil (`201` + le commentaire) ; `DELETE { feedbackId, commentId, projectName }` en supprime un (et exige la clé d'API, comme tout appel destructif). Un store sans support des commentaires répond `501` — voir [Commentaires](/fr/docs/comments).
+
+**Erreurs :** JSON invalide → `400 { error }` ; échec de validation → `400 { errors: [{ field, message }] }` ; id inconnu → `404` ; commentaires non gérés par le store → `501 { error }` ; `clientId` appartenant à un autre projet → `409 { error }` ; table manquante → `500` avec une indication d'exécuter `npx prisma db push` ; tout le reste → `500 { error: "Internal server error" }`.
 
 ### Les limites de validation à connaître
 
-`message` ≤ 5000 caractères · `annotations` ≤ 50 par feedback · `screenshotDataUrl` ≤ 1,5 Mo, JPEG/PNG/WebP uniquement · `diagnostics` ≤ 50 entrées console + 20 réseau · `clientId` doit correspondre à `[a-zA-Z0-9_-]+` · `authorEmail` suit le même motif Unicode que la fenêtre d'identité du widget (`françois@exemple.fr` passe), donc une adresse acceptée par la fenêtre n'est jamais refusée ici.
+`message` ≤ 5000 caractères · le `body` d'un commentaire ≤ 5000 caractères (rogné, non vide) · `annotations` ≤ 50 par feedback · `screenshotDataUrl` ≤ 1,5 Mo, JPEG/PNG/WebP uniquement · `diagnostics` ≤ 50 entrées console + 20 réseau · `clientId` doit correspondre à `[a-zA-Z0-9_-]+` · `authorEmail` est soit vide (le visiteur l'a laissée de côté — seul le nom est obligatoire), soit conforme au même motif Unicode que la fenêtre d'identité du widget (`françois@exemple.fr` passe), donc une adresse acceptée par la fenêtre n'est jamais refusée ici.
 
 ## Schéma de base de données
 
@@ -98,6 +102,7 @@ model SitepingFeedback {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   annotations      SitepingAnnotation[]
+  comments         SitepingComment[]
 
   @@index([projectName])
   @@index([projectName, status, createdAt])
@@ -131,7 +136,22 @@ model SitepingAnnotation {
 
   @@index([feedbackId])
 }
+
+model SitepingComment {
+  id          String           @id @default(cuid())
+  feedbackId  String
+  feedback    SitepingFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  body        String           @db.Text
+  authorName  String
+  authorEmail String
+  authorRole  String           @default("client")
+  createdAt   DateTime         @default(now())
+
+  @@index([feedbackId, createdAt])
+}
 ```
+
+`SitepingComment` est le plus récent des trois. Un schéma qui ne l'a pas continue de servir les feedbacks — les fils se lisent vides et les écritures de commentaires répondent `501` — donc un déploiement existant met à jour à son rythme avec `npx @siteping/cli sync && npx prisma db push`.
 
 > `@db.Text` cible PostgreSQL et MySQL. Sur SQLite, retirez ces attributs — un `String` simple y est déjà sans limite.
 

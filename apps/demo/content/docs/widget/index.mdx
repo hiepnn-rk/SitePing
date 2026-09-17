@@ -39,16 +39,19 @@ siteping.open();                  // open the feedback panel
 siteping.close();                 // close it
 siteping.refresh();               // re-fetch feedbacks for the current page (never throws)
 siteping.focusFeedback(id);       // scroll to + highlight a marker; false if unknown
+await siteping.setLocale("ja");   // switch the UI language and persist the choice
+siteping.getLocale();             // the locale currently rendered
 const off = siteping.on("feedback:sent", (feedback) => { ... });
 siteping.destroy();               // full teardown, restores all patched globals
 ```
 
-`on()` returns an unsubscribe function. Seven public events are available:
+`on()` returns an unsubscribe function. Eight public events are available:
 
 | Event | Payload | Fires when |
 |---|---|---|
 | `feedback:sent` | the created feedback | A submission succeeded |
 | `feedback:deleted` | the feedback id | A feedback was deleted |
+| `comment:added` | the created comment | A reply was posted on a feedback's [thread](/docs/comments) |
 | `feedback:error` | the `Error` | A feedback API call failed — same payload as the `onError` config callback |
 | `panel:open` / `panel:close` | — | The panel opened / closed |
 | `annotation:start` / `annotation:end` | — | An annotation session started / ended. `end` fires whether the user submitted or cancelled, and both entry paths — the FAB and [right-click comments](/docs/widget/right-click) — emit the symmetric pair, so you can pause chat bubbles or analytics overlays in between |

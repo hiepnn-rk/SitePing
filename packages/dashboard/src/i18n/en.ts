@@ -69,6 +69,18 @@ export const en: Translations = {
   "drawer.deleteConfirm": "Delete permanently? This cannot be undone.",
   "drawer.deleteYes": "Delete",
 
+  // Discussion thread
+  "comments.title": "Discussion",
+  "comments.empty": "No replies yet.",
+  "comments.placeholder": "Reply to the client…",
+  "comments.submit": "Send",
+  "comments.sending": "Sending…",
+  "comments.error": "Could not post your reply",
+  "comments.hint": "⌘/Ctrl + Enter to send",
+  "comments.delete": "Delete reply",
+  "comments.roleTeam": "Team",
+  "comments.roleClient": "Client",
+
   // Footer hint bar
   "hints.navigate": "navigate",
   "hints.open": "open",

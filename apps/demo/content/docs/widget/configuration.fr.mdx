@@ -49,6 +49,7 @@ function mountFeedback(config: SitepingHttpConfig) { /* endpoint garanti */ }
 | `accentColor` | `string` | `"#0066ff"` | **Hexadécimal uniquement** (`#RGB`, `#RRGGBB`, `#RRGGBBAA`). Les couleurs nommées, `rgb()`, `hsl()` etc. affichent un avertissement et retombent sur la valeur par défaut |
 | `theme` | `"light"` \| `"dark"` \| `"auto"` | `"light"` | `auto` lit la préférence système **une seule fois à l'init** — un changement de thème de l'OS en cours de session ne re-thème pas le widget |
 | `locale` | `string` | `"en"` | N'importe quelle étiquette BCP-47 ; voir [Langues](/fr/docs/widget/i18n) |
+| `localeSwitcher` | `boolean` ou `string[]` | `false` | Affiche un sélecteur de langue dans l'en-tête du panneau. `true` liste toutes les locales intégrées, un tableau liste exactement celles-ci (`["en", "ja"]`). Le choix du visiteur est mémorisé et l'emporte sur `locale` au chargement suivant |
 
 ## Fonctionnalités
 
@@ -56,9 +57,10 @@ function mountFeedback(config: SitepingHttpConfig) { /* endpoint garanti */ }
 |---|---|---|---|
 | `enableScreenshot` | `boolean` | `false` | Capture un JPEG de la zone annotée à l'envoi — voir [Captures d'écran](/fr/docs/widget/screenshots) |
 | `enableRightClickComment` | `boolean` | `false` | Clic droit n'importe où pour commenter instantanément — voir [Commentaires au clic droit](/fr/docs/widget/right-click) |
+| `comments` | `boolean` | `true` | Affiche le fil de discussion d'un feedback pour que les visiteurs puissent répondre — voir [Commentaires](/fr/docs/comments). `false` le masque entièrement |
 | `captureDiagnostics` | `boolean` ou objet | `false` | Joint les entrées console récentes (max 50) et les requêtes réseau (max 20) à chaque feedback. `true` active les deux ; un objet choisit les canaux et les limites |
 | `deepLink` | `boolean` ou `{ param?: string }` | `false` | Au premier chargement, met en avant le feedback référencé par `?siteping=<id>` (ou votre paramètre personnalisé). Chargement initial uniquement — pour les changements de route, appelez `focusFeedback()` |
-| `identity` | `{ name, email }` | — | Pré-remplit l'auteur (applis avec SSO) : évite complètement la modale d'identité, jamais persisté dans le localStorage |
+| `identity` | `{ name, email? }` | — | Pré-remplit l'auteur (applis avec SSO) : évite complètement la modale d'identité, jamais persisté dans le localStorage. Seul `name` est obligatoire |
 
 ## Cadrage par page
 
@@ -75,6 +77,7 @@ function mountFeedback(config: SitepingHttpConfig) { /* endpoint garanti */ }
 | Option | Signature | Déclenché quand |
 |---|---|---|
 | `onFeedbackSent` | `(feedback) => void` | Un feedback a été créé avec succès |
+| `onCommentAdded` | `(comment) => void` | Une réponse a été publiée depuis le fil du panneau |
 | `onError` | `(error) => void` | Un envoi ou un chargement a échoué — voir [gestion des erreurs](/fr/docs/widget#gérer-les-erreurs) |
 | `onOpen` / `onClose` | `() => void` | Le panneau s'est ouvert / fermé |
 | `onAnnotationStart` / `onAnnotationEnd` | `() => void` | Une session d'annotation a commencé / s'est terminée — mettez en pause vos bulles de chat ou vos overlays d'analytics ici |

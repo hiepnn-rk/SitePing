@@ -51,6 +51,7 @@ function makeFeedback(overrides: Partial<FeedbackResponse> = {}): FeedbackRespon
     annotations: [],
     urlPattern: null,
     screenshotUrl: null,
+    comments: [],
     screenshotRegion: null,
     diagnostics: null,
     ...overrides,
@@ -3574,6 +3575,69 @@ describe("Panel", () => {
       // The card from the first load should still be there (no error UI replacement)
       const card = shadow.querySelector<HTMLElement>('[data-feedback-id="fb-1"]');
       expect(card).not.toBeNull();
+    });
+  });
+  // -------------------------------------------------------------------------
+  // Locale switcher (header)
+  // -------------------------------------------------------------------------
+
+  describe("locale switcher", () => {
+    function mountWithSwitcher(onChange = vi.fn(), current = "fr") {
+      const localShadow = createShadowRoot();
+      const localPanel = new Panel(
+        localShadow,
+        colors,
+        new EventBus<WidgetEvents>(),
+        createMockApiClient() as never,
+        "test-project",
+        createMockMarkers() as never,
+        t,
+        current,
+        {
+          getScope: () => ({ url: "/", urlPattern: null }),
+          scopeAnnotationsByUrl: true,
+          localeSwitcher: { locales: ["en", "ja"], current, onChange },
+        },
+      );
+      return { localShadow, localPanel, onChange };
+    }
+
+    it("renders no picker when the host did not enable it", () => {
+      expect(shadow.querySelector(".sp-locale-select")).toBeNull();
+    });
+
+    it("renders one option per offered locale, labelled in its own language", () => {
+      const { localShadow, localPanel } = mountWithSwitcher();
+      const select = localShadow.querySelector<HTMLSelectElement>(".sp-locale-select")!;
+      expect(select).not.toBeNull();
+      expect([...select.options].map((o) => o.value)).toEqual(["en", "ja"]);
+      expect([...select.options].map((o) => o.textContent)).toEqual(["English", "日本語"]);
+      expect(select.getAttribute("aria-label")).toBe(t("panel.language"));
+
+      localPanel.destroy();
+      localShadow.host.remove();
+    });
+
+    it("pre-selects the active locale", () => {
+      const { localShadow, localPanel } = mountWithSwitcher(vi.fn(), "en");
+      const select = localShadow.querySelector<HTMLSelectElement>(".sp-locale-select")!;
+      expect(select.value).toBe("en");
+
+      localPanel.destroy();
+      localShadow.host.remove();
+    });
+
+    it("calls onChange with the picked locale", () => {
+      const onChange = vi.fn();
+      const { localShadow, localPanel } = mountWithSwitcher(onChange);
+      const select = localShadow.querySelector<HTMLSelectElement>(".sp-locale-select")!;
+      select.value = "ja";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+
+      expect(onChange).toHaveBeenCalledWith("ja");
+
+      localPanel.destroy();
+      localShadow.host.remove();
     });
   });
 });

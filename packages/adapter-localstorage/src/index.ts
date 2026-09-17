@@ -1,5 +1,7 @@
 import {
   type AnnotationRecord,
+  type CommentCreateInput,
+  type CommentRecord,
   createCollectionStore,
   type FeedbackCreateInput,
   type FeedbackPage,
@@ -134,6 +136,14 @@ export class LocalStorageStore implements SitepingStore {
     return this.engine.verifyProjectOwnership(id, projectName);
   }
 
+  addComment(feedbackId: string, data: CommentCreateInput): Promise<CommentRecord> {
+    return this.engine.addComment(feedbackId, data);
+  }
+
+  deleteComment(feedbackId: string, commentId: string): Promise<void> {
+    return this.engine.deleteComment(feedbackId, commentId);
+  }
+
   /** Remove all data from localStorage for this store key. */
   clear(): void {
     localStorage.removeItem(this.key);
@@ -149,7 +159,7 @@ export class LocalStorageStore implements SitepingStore {
 // ---------------------------------------------------------------------------
 
 /** Nullable record fields that a blob written by an older release may lack. */
-type LegacyFeedbackKey = "urlPattern" | "screenshotUrl" | "screenshotRegion" | "diagnostics";
+type LegacyFeedbackKey = "urlPattern" | "screenshotUrl" | "screenshotRegion" | "diagnostics" | "comments";
 type LegacyAnnotationKey = "anchorKey";
 
 type StoredAnnotation = Omit<Serialized<AnnotationRecord>, LegacyAnnotationKey> &
@@ -167,6 +177,10 @@ function reviveAnnotation(raw: StoredAnnotation): AnnotationRecord {
   };
 }
 
+function reviveComment(raw: Serialized<CommentRecord>): CommentRecord {
+  return { ...raw, createdAt: new Date(raw.createdAt) };
+}
+
 function reviveFeedback(raw: StoredFeedback): FeedbackRecord {
   return {
     ...raw,
@@ -174,6 +188,7 @@ function reviveFeedback(raw: StoredFeedback): FeedbackRecord {
     updatedAt: new Date(raw.updatedAt),
     resolvedAt: raw.resolvedAt ? new Date(raw.resolvedAt) : null,
     annotations: raw.annotations.map(reviveAnnotation),
+    comments: (raw.comments ?? []).map(reviveComment),
     // Legacy back-fill: every nullable field is present on the in-memory
     // shape, as `null`, exactly like a freshly built record. Plain JSON
     // values (region, diagnostics) survive the round-trip verbatim.

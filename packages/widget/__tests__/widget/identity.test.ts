@@ -31,8 +31,23 @@ describe("identity", () => {
     expect(getIdentity()).toBeNull();
   });
 
-  it("returns null for partial identity (missing email)", () => {
+  it("keeps an identity with no email — only the name is required", () => {
     (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue('{"name":"Alice"}');
+    expect(getIdentity()).toEqual({ name: "Alice" });
+  });
+
+  it("keeps an identity with an empty email", () => {
+    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue('{"name":"Alice","email":""}');
+    expect(getIdentity()).toEqual({ name: "Alice", email: "" });
+  });
+
+  it("returns null when the name is missing", () => {
+    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue('{"email":"alice@test.com"}');
+    expect(getIdentity()).toBeNull();
+  });
+
+  it("returns null when the name is empty", () => {
+    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue('{"name":"","email":"alice@test.com"}');
     expect(getIdentity()).toBeNull();
   });
 

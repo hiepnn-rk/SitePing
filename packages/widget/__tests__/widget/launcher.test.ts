@@ -768,6 +768,37 @@ describe("launch", () => {
   });
 
   // -------------------------------------------------------------------------
+  // comment:added bridge + onCommentAdded callback
+  // -------------------------------------------------------------------------
+
+  describe("comment:added public bridge", () => {
+    const comment = {
+      id: "cm-1",
+      feedbackId: "fb-1",
+      body: "Still broken",
+      authorName: "Alice",
+      authorEmail: "",
+      authorRole: "client" as const,
+      createdAt: new Date("2026-05-14T10:00:00Z").toISOString(),
+    };
+
+    it("emits comment:added on the public bus and calls onCommentAdded", () => {
+      const onCommentAdded = vi.fn();
+      const instance = launch({ ...defaultConfig(), onCommentAdded });
+      const listener = vi.fn();
+      instance.on("comment:added", listener);
+
+      expect(annotatorCapture.bus).not.toBeNull();
+      annotatorCapture.bus!.emit("comment:added", comment);
+
+      expect(listener).toHaveBeenCalledWith(comment);
+      expect(onCommentAdded).toHaveBeenCalledWith(comment);
+
+      instance.destroy();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // adoptedStyleSheets branch (modern browsers)
   // -------------------------------------------------------------------------
 

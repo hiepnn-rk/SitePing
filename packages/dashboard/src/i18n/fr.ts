@@ -69,6 +69,18 @@ export const fr: Translations = {
   "drawer.deleteConfirm": "Supprimer définitivement ? Action irréversible.",
   "drawer.deleteYes": "Supprimer",
 
+  // Discussion thread
+  "comments.title": "Discussion",
+  "comments.empty": "Aucune réponse pour l'instant.",
+  "comments.placeholder": "Répondre au client…",
+  "comments.submit": "Envoyer",
+  "comments.sending": "Envoi…",
+  "comments.error": "Impossible d'envoyer votre réponse",
+  "comments.hint": "⌘/Ctrl + Entrée pour envoyer",
+  "comments.delete": "Supprimer la réponse",
+  "comments.roleTeam": "Équipe",
+  "comments.roleClient": "Client",
+
   // Footer hint bar
   "hints.navigate": "naviguer",
   "hints.open": "ouvrir",

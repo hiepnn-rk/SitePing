@@ -23,6 +23,8 @@ export interface Translations {
   "panel.cancel": string;
   "panel.confirmDelete": string;
   "panel.loadMore": string;
+  /** Label of the panel's language picker (rendered only when `localeSwitcher` is on). */
+  "panel.language": string;
 
   // Status filter labels
   "panel.statusAll": string;
@@ -72,6 +74,7 @@ export interface Translations {
   "identity.title": string;
   "identity.nameLabel": string;
   "identity.namePlaceholder": string;
+  /** Email field label. Carries the "(optional)" hint — only the name is required. */
   "identity.emailLabel": string;
   "identity.emailPlaceholder": string;
   "identity.cancel": string;
@@ -145,6 +148,20 @@ export interface Translations {
   "detail.diagnostics.expand": string;
   "detail.diagnostics.collapse": string;
   "detail.diagnostics.noEntries": string;
+
+  // Discussion thread on a feedback (detail view)
+  "comments.title": string;
+  "comments.empty": string;
+  "comments.placeholder": string;
+  "comments.submit": string;
+  "comments.sending": string;
+  "comments.error": string;
+  /** Keyboard hint under the composer. */
+  "comments.hint": string;
+  /** Role chip on a reply written from the dashboard. */
+  "comments.roleTeam": string;
+  /** Role chip on a reply written from the widget. */
+  "comments.roleClient": string;
 
   // Keyboard shortcuts overlay
   "shortcuts.title": string;

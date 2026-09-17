@@ -1,4 +1,6 @@
 import {
+  type CommentCreateInput,
+  type CommentRecord,
   createCollectionStore,
   type FeedbackCreateInput,
   type FeedbackPage,
@@ -72,6 +74,14 @@ export class MemoryStore implements SitepingStore {
 
   verifyProjectOwnership(id: string, projectName: string): Promise<boolean> {
     return this.engine.verifyProjectOwnership(id, projectName);
+  }
+
+  addComment(feedbackId: string, data: CommentCreateInput): Promise<CommentRecord> {
+    return this.engine.addComment(feedbackId, data);
+  }
+
+  deleteComment(feedbackId: string, commentId: string): Promise<void> {
+    return this.engine.deleteComment(feedbackId, commentId);
   }
 
   /** Remove all data from this store instance. */

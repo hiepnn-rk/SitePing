@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import type { AnnotationResponse, FeedbackResponse } from "@siteping/core";
+import type { AnnotationResponse, CommentResponse, FeedbackResponse } from "@siteping/core";
+import { SitepingUnsupportedError } from "@siteping/core";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { createT } from "../../src/i18n/index.js";
 import { DETAIL_CSS, type DetailCallbacks, DetailView } from "../../src/panel-detail.js";
@@ -67,14 +68,31 @@ function makeFeedback(overrides: Partial<FeedbackResponse> = {}): FeedbackRespon
     annotations: [],
     urlPattern: null,
     screenshotUrl: null,
+    comments: [],
     screenshotRegion: null,
     diagnostics: null,
     ...overrides,
   };
 }
 
+/** The function-valued callbacks — `comments` is an options bag, not a handler. */
+type HandlerKey = Exclude<keyof DetailCallbacks, "comments">;
+
+function makeComment(overrides: Partial<CommentResponse> = {}): CommentResponse {
+  return {
+    id: "cm-1",
+    feedbackId: "fb-1",
+    body: "Still broken on staging",
+    authorName: "Alice",
+    authorEmail: "alice@example.com",
+    authorRole: "client",
+    createdAt: new Date("2026-05-14T10:00:00Z").toISOString(),
+    ...overrides,
+  };
+}
+
 function createCallbacks(): {
-  [K in keyof DetailCallbacks]: Mock<NonNullable<DetailCallbacks[K]>>;
+  [K in HandlerKey]: Mock<NonNullable<DetailCallbacks[K]>>;
 } {
   return {
     onBack: vi.fn<NonNullable<DetailCallbacks["onBack"]>>(),
@@ -84,13 +102,21 @@ function createCallbacks(): {
   };
 }
 
-function createView(locale = "en"): {
+function createView(
+  locale = "en",
+  comments?: DetailCallbacks["comments"],
+): {
   view: DetailView;
   callbacks: ReturnType<typeof createCallbacks>;
   host: HTMLElement;
 } {
   const callbacks = createCallbacks();
-  const view = new DetailView(buildThemeColors(), callbacks, createT(locale), locale);
+  const view = new DetailView(
+    buildThemeColors(),
+    { ...callbacks, ...(comments ? { comments } : {}) },
+    createT(locale),
+    locale,
+  );
   const host = document.createElement("div");
   host.style.position = "relative";
   host.appendChild(view.element);
@@ -1154,6 +1180,157 @@ describe("DetailView", () => {
       expect(compact).toContain(
         "@supports (-webkit-backdrop-filter: blur(1px)) and (not (backdrop-filter: blur(1px))) { .sp-detail { background: var(--sp-bg); } }",
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Discussion thread
+  // -------------------------------------------------------------------------
+
+  describe("discussion thread", () => {
+    /** A view whose `comments` options are configurable per test. */
+    function withComments(comments: DetailCallbacks["comments"]): ReturnType<typeof createView> {
+      setup.view.destroy();
+      setup.host.remove();
+      setup = createView("en", comments);
+      return setup;
+    }
+
+    it("renders no thread at all when the host disabled comments", () => {
+      setup.view.show(makeFeedback({ comments: [makeComment()] }), 1);
+      expect(setup.view.element.querySelector(".sp-detail-thread")).toBeNull();
+      expect(setup.view.element.querySelector(".sp-comment-form")).toBeNull();
+    });
+
+    it("renders each comment with its author, role chip and body", () => {
+      const { view } = withComments({});
+      view.show(
+        makeFeedback({
+          comments: [
+            makeComment(),
+            makeComment({ id: "cm-2", body: "Fixed in 1.4.2", authorName: "Bob", authorRole: "team" }),
+          ],
+        }),
+        1,
+      );
+
+      const items = view.element.querySelectorAll(".sp-comment");
+      expect(items).toHaveLength(2);
+      expect(items[0]?.getAttribute("data-role")).toBe("client");
+      expect(items[0]?.querySelector(".sp-comment-author")?.textContent).toBe("Alice");
+      expect(items[0]?.querySelector(".sp-comment-role")?.textContent).toBe("Client");
+      expect(items[0]?.querySelector(".sp-comment-body")?.textContent).toBe("Still broken on staging");
+      expect(items[1]?.getAttribute("data-role")).toBe("team");
+      expect(items[1]?.querySelector(".sp-comment-role")?.textContent).toBe("Team");
+    });
+
+    it("stays read-only when the backend cannot store comments", () => {
+      const { view } = withComments({});
+      view.show(makeFeedback({ comments: [makeComment()] }), 1);
+
+      expect(view.element.querySelector(".sp-comment")).not.toBeNull();
+      expect(view.element.querySelector(".sp-comment-form")).toBeNull();
+    });
+
+    it("hides the whole section when there is nothing to read and nothing to write", () => {
+      const { view } = withComments({});
+      view.show(makeFeedback({ comments: [] }), 1);
+      expect(view.element.querySelector(".sp-detail-thread")).toBeNull();
+    });
+
+    it("shows the empty state plus a composer when posting is available", () => {
+      const post = vi.fn();
+      const { view } = withComments({ post });
+      view.show(makeFeedback({ comments: [] }), 1);
+
+      expect(view.element.querySelector(".sp-thread-empty")?.textContent).toBe("No replies yet.");
+      expect(view.element.querySelector<HTMLTextAreaElement>(".sp-comment-input")).not.toBeNull();
+    });
+
+    it("posts the trimmed body, appends the reply and clears the input", async () => {
+      const created = makeComment({ id: "cm-new", body: "Any update?" });
+      const post = vi.fn<NonNullable<NonNullable<DetailCallbacks["comments"]>["post"]>>().mockResolvedValue(created);
+      const { view } = withComments({ post });
+      const feedback = makeFeedback({ comments: [] });
+      view.show(feedback, 1);
+
+      const input = view.element.querySelector<HTMLTextAreaElement>(".sp-comment-input");
+      const send = view.element.querySelector<HTMLButtonElement>(".sp-comment-send");
+      input!.value = "  Any update?  ";
+      send!.click();
+      await vi.waitFor(() => expect(post).toHaveBeenCalledOnce());
+
+      expect(post).toHaveBeenCalledWith(feedback, "Any update?");
+      // Pushed onto the record the panel also holds, so the reply survives
+      // navigating back to the list and reopening the feedback.
+      expect(feedback.comments).toEqual([created]);
+      await vi.waitFor(() => expect(view.element.querySelectorAll(".sp-comment")).toHaveLength(1));
+      expect(input!.value).toBe("");
+    });
+
+    it("ignores an empty submission", () => {
+      const post = vi.fn();
+      const { view } = withComments({ post });
+      view.show(makeFeedback({ comments: [] }), 1);
+
+      view.element.querySelector<HTMLTextAreaElement>(".sp-comment-input")!.value = "   ";
+      view.element.querySelector<HTMLButtonElement>(".sp-comment-send")!.click();
+
+      expect(post).not.toHaveBeenCalled();
+    });
+
+    it("posts on Cmd/Ctrl+Enter but not on a bare Enter", async () => {
+      const post = vi
+        .fn<NonNullable<NonNullable<DetailCallbacks["comments"]>["post"]>>()
+        .mockResolvedValue(makeComment());
+      const { view } = withComments({ post });
+      view.show(makeFeedback({ comments: [] }), 1);
+
+      const input = view.element.querySelector<HTMLTextAreaElement>(".sp-comment-input");
+      input!.value = "A reply";
+      input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      expect(post).not.toHaveBeenCalled();
+
+      input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+      await vi.waitFor(() => expect(post).toHaveBeenCalledOnce());
+    });
+
+    it("surfaces a failure and keeps the typed text", async () => {
+      const post = vi
+        .fn<NonNullable<NonNullable<DetailCallbacks["comments"]>["post"]>>()
+        .mockRejectedValue(new Error("network down"));
+      const { view } = withComments({ post });
+      view.show(makeFeedback({ comments: [] }), 1);
+
+      const input = view.element.querySelector<HTMLTextAreaElement>(".sp-comment-input");
+      input!.value = "A reply";
+      view.element.querySelector<HTMLButtonElement>(".sp-comment-send")!.click();
+
+      const error = view.element.querySelector<HTMLElement>(".sp-comment-error");
+      await vi.waitFor(() => expect(error?.hidden).toBe(false));
+      expect(error?.textContent).toBe("Could not post your reply");
+      expect(input!.value).toBe("A reply");
+      expect(view.element.querySelector(".sp-comment-form")).not.toBeNull();
+    });
+
+    it("drops the composer for the session when the backend answers 501", async () => {
+      const post = vi
+        .fn<NonNullable<NonNullable<DetailCallbacks["comments"]>["post"]>>()
+        .mockRejectedValue(new SitepingUnsupportedError("Failed to post comment: 501"));
+      const { view } = withComments({ post });
+      view.show(makeFeedback({ comments: [makeComment()] }), 1);
+
+      view.element.querySelector<HTMLTextAreaElement>(".sp-comment-input")!.value = "A reply";
+      view.element.querySelector<HTMLButtonElement>(".sp-comment-send")!.click();
+
+      await vi.waitFor(() => expect(view.element.querySelector(".sp-comment-form")).toBeNull());
+      // The thread itself stays readable.
+      expect(view.element.querySelector(".sp-comment")).not.toBeNull();
+
+      // And it does not come back on the next feedback either.
+      view.show(makeFeedback({ id: "fb-2", comments: [makeComment({ id: "cm-9" })] }), 2);
+      expect(view.element.querySelector(".sp-comment-form")).toBeNull();
+      expect(view.element.querySelector(".sp-comment")).not.toBeNull();
     });
   });
 });

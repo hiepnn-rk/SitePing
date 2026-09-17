@@ -39,16 +39,19 @@ siteping.open();                  // ouvrir le panneau de feedback
 siteping.close();                 // le fermer
 siteping.refresh();               // recharger les feedbacks de la page courante (ne lève jamais)
 siteping.focusFeedback(id);       // faire défiler jusqu'à un marqueur et le mettre en évidence ; false si inconnu
+await siteping.setLocale("ja");   // changer la langue de l'interface et mémoriser le choix
+siteping.getLocale();             // la locale actuellement affichée
 const off = siteping.on("feedback:sent", (feedback) => { ... });
 siteping.destroy();               // démontage complet, restaure tous les globals patchés
 ```
 
-`on()` renvoie une fonction de désabonnement. Sept événements publics sont disponibles :
+`on()` renvoie une fonction de désabonnement. Huit événements publics sont disponibles :
 
 | Événement | Charge utile | Déclenché quand |
 |---|---|---|
 | `feedback:sent` | le feedback créé | Un envoi a réussi |
 | `feedback:deleted` | l'id du feedback | Un feedback a été supprimé |
+| `comment:added` | le commentaire créé | Une réponse a été publiée sur le [fil](/fr/docs/comments) d'un feedback |
 | `feedback:error` | l'`Error` | Un appel à l'API de feedback a échoué — même charge utile que le callback de config `onError` |
 | `panel:open` / `panel:close` | — | Le panneau s'est ouvert / fermé |
 | `annotation:start` / `annotation:end` | — | Une session d'annotation a commencé / s'est terminée. `end` se déclenche que l'utilisateur ait envoyé ou annulé, et les deux points d'entrée — le bouton flottant et les [commentaires au clic droit](/fr/docs/widget/right-click) — émettent la paire symétrique : de quoi mettre en pause vos bulles de chat ou vos overlays d'analytics entre les deux |

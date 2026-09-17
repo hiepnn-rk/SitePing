@@ -1,8 +1,10 @@
 import {
   type FeedbackPayload,
+  isUnsupported,
   SitepingAuthError,
   type SitepingError,
   SitepingNetworkError,
+  SitepingUnsupportedError,
   SitepingValidationError,
 } from "@siteping/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -562,6 +564,58 @@ describe("ApiClient", () => {
       vi.mocked(fetch).mockResolvedValue(new Response("Bad Request", { status: 400 }));
 
       await expect(client.deleteAllFeedbacks("my-project")).rejects.toThrow("Failed to delete all feedbacks: 400");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // addComment
+  // -----------------------------------------------------------------------
+
+  describe("addComment", () => {
+    const input = {
+      body: "Still broken on staging",
+      authorName: "Alice",
+      authorEmail: "alice@example.com",
+      authorRole: "client" as const,
+    };
+
+    it("reports comments as supported — an HTTP server's capability is only knowable by asking", () => {
+      expect(client.supportsComments).toBe(true);
+    });
+
+    it("POSTs the comment payload with feedbackId and projectName", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify({ id: "cm-1", feedbackId: "fb-1", ...input, createdAt: "2026-05-14T10:00:00Z" }), {
+          status: 201,
+        }),
+      );
+
+      const comment = await client.addComment("fb-1", input);
+
+      expect(fetch).toHaveBeenCalledWith(
+        endpoint,
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ feedbackId: "fb-1", projectName: "test", ...input }),
+        }),
+      );
+      expect(comment.id).toBe("cm-1");
+    });
+
+    it("maps a 501 to a SitepingUnsupportedError so the panel can hide its composer", async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response("Comments are not supported by this store.", { status: 501 }));
+
+      const error = await client.addComment("fb-1", input).catch((e: Error) => e);
+      expect(error).toBeInstanceOf(SitepingUnsupportedError);
+      expect(isUnsupported(error)).toBe(true);
+      // Settled answer, not a blip: no retry storm behind it.
+      expect(fetch).toHaveBeenCalledOnce();
+    });
+
+    it("throws a validation error on a rejected payload", async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response("Bad Request", { status: 400 }));
+
+      await expect(client.addComment("fb-1", input)).rejects.toBeInstanceOf(SitepingValidationError);
     });
   });
 });

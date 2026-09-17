@@ -711,3 +711,128 @@ describe("useSitepingInbox — edge branches", () => {
     expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: "r2" }));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Comments
+// ---------------------------------------------------------------------------
+
+const AUTHOR = { name: "Dana Dev", email: "dana@team.example" };
+
+describe("useSitepingInbox — comments", () => {
+  it("reports canComment only with both an author and a source that can post", async () => {
+    const withBoth = renderHook(() =>
+      useSitepingInbox({ projects: "demo", source: makeSource(demoRecords()), author: AUTHOR }),
+    );
+    await waitFor(() => expect(withBoth.result.current.loading).toBe(false));
+    expect(withBoth.result.current.canComment).toBe(true);
+
+    const noAuthor = renderHook(() => useSitepingInbox({ projects: "demo", source: makeSource(demoRecords()) }));
+    await waitFor(() => expect(noAuthor.result.current.loading).toBe(false));
+    expect(noAuthor.result.current.canComment).toBe(false);
+
+    const noSourceSupport = renderHook(() =>
+      useSitepingInbox({
+        projects: "demo",
+        source: makeSource(demoRecords(), { comments: false }),
+        author: AUTHOR,
+      }),
+    );
+    await waitFor(() => expect(noSourceSupport.result.current.loading).toBe(false));
+    expect(noSourceSupport.result.current.canComment).toBe(false);
+  });
+
+  it("posts as the configured author with the team role and appends the saved reply", async () => {
+    const source = makeSource(demoRecords());
+    const { result } = renderHook(() => useSitepingInbox({ projects: "demo", source, author: AUTHOR }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.addComment("r1", "  Fixed on staging  ");
+    });
+
+    expect(source.addComment).toHaveBeenCalledWith("r1", "demo", {
+      body: "Fixed on staging",
+      authorName: "Dana Dev",
+      authorEmail: "dana@team.example",
+      authorRole: "team",
+    });
+    const row = result.current.items.find((r) => r.id === "r1");
+    expect(row?.comments.map((c) => c.body)).toEqual(["Fixed on staging"]);
+  });
+
+  it("keeps the opened drawer record in sync with the new reply", async () => {
+    const source = makeSource(demoRecords());
+    const { result } = renderHook(() => useSitepingInbox({ projects: "demo", source, author: AUTHOR }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.openFeedback("r1"));
+    await act(async () => {
+      await result.current.addComment("r1", "A reply");
+    });
+
+    expect(result.current.opened?.comments.map((c) => c.body)).toEqual(["A reply"]);
+  });
+
+  it("ignores an empty reply and a missing author", async () => {
+    const source = makeSource(demoRecords());
+    const withAuthor = renderHook(() => useSitepingInbox({ projects: "demo", source, author: AUTHOR }));
+    await waitFor(() => expect(withAuthor.result.current.loading).toBe(false));
+    await act(async () => {
+      await withAuthor.result.current.addComment("r1", "   ");
+    });
+    expect(source.addComment).not.toHaveBeenCalled();
+
+    const anonymous = renderHook(() => useSitepingInbox({ projects: "demo", source }));
+    await waitFor(() => expect(anonymous.result.current.loading).toBe(false));
+    await act(async () => {
+      await anonymous.result.current.addComment("r1", "Who am I?");
+    });
+    expect(source.addComment).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed post through onError and rejects, without touching the thread", async () => {
+    const source = makeSource(demoRecords());
+    const onError = vi.fn();
+    const { result } = renderHook(() => useSitepingInbox({ projects: "demo", source, author: AUTHOR, onError }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    source.control.failNextComment = new Error("nope");
+    await act(async () => {
+      await expect(result.current.addComment("r1", "A reply")).rejects.toThrow("nope");
+    });
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(result.current.items.find((r) => r.id === "r1")?.comments).toEqual([]);
+  });
+
+  it("deletes a reply from the thread", async () => {
+    const source = makeSource(demoRecords());
+    const { result } = renderHook(() => useSitepingInbox({ projects: "demo", source, author: AUTHOR }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.addComment("r1", "Typo, ignore");
+    });
+    const commentId = result.current.items.find((r) => r.id === "r1")?.comments[0]?.id;
+    expect(commentId).toBeDefined();
+
+    await act(async () => {
+      await result.current.deleteComment("r1", commentId as string);
+    });
+
+    expect(source.removeComment).toHaveBeenCalledWith("r1", commentId, "demo");
+    expect(result.current.items.find((r) => r.id === "r1")?.comments).toEqual([]);
+  });
+
+  it("is a no-op when the source cannot delete comments", async () => {
+    const source = makeSource(demoRecords(), { comments: false });
+    const { result } = renderHook(() => useSitepingInbox({ projects: "demo", source, author: AUTHOR }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.deleteComment("r1", "cm-1");
+    });
+    // Nothing thrown, nothing changed.
+    expect(result.current.items.find((r) => r.id === "r1")?.comments).toEqual([]);
+  });
+});

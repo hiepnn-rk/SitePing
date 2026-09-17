@@ -49,6 +49,7 @@ function mountFeedback(config: SitepingHttpConfig) { /* endpoint guaranteed */ }
 | `accentColor` | `string` | `"#0066ff"` | **Hex only** (`#RGB`, `#RRGGBB`, `#RRGGBBAA`). Named colors, `rgb()`, `hsl()` etc. log a warning and fall back to the default |
 | `theme` | `"light"` \| `"dark"` \| `"auto"` | `"light"` | `auto` reads the system preference **once at init** — an OS theme change mid-session doesn't re-theme the widget |
 | `locale` | `string` | `"en"` | Any BCP-47 tag; see [Languages](/docs/widget/i18n) |
+| `localeSwitcher` | `boolean` or `string[]` | `false` | Show a language picker in the panel header. `true` lists every built-in locale, an array lists exactly those (`["en", "ja"]`). The visitor's pick is persisted and wins over `locale` on the next load |
 
 ## Features
 
@@ -56,9 +57,10 @@ function mountFeedback(config: SitepingHttpConfig) { /* endpoint guaranteed */ }
 |---|---|---|---|
 | `enableScreenshot` | `boolean` | `false` | Capture a JPEG of the annotated area on submit — see [Screenshots](/docs/widget/screenshots) |
 | `enableRightClickComment` | `boolean` | `false` | Right-click anywhere to comment instantly — see [Right-click comments](/docs/widget/right-click) |
+| `comments` | `boolean` | `true` | Show the discussion thread on a feedback so visitors can reply — see [Comments](/docs/comments). Set `false` to hide it entirely |
 | `captureDiagnostics` | `boolean` or object | `false` | Attach recent console entries (max 50) and network requests (max 20) to each feedback. `true` enables both; an object picks channels and limits |
 | `deepLink` | `boolean` or `{ param?: string }` | `false` | On first load, focus the feedback referenced by `?siteping=<id>` (or your custom param). Initial load only — for route changes, call `focusFeedback()` |
-| `identity` | `{ name, email }` | — | Pre-fill the author (SSO apps): skips the identity modal entirely, never persisted to localStorage |
+| `identity` | `{ name, email? }` | — | Pre-fill the author (SSO apps): skips the identity modal entirely, never persisted to localStorage. Only `name` is required |
 
 ## Page scoping
 
@@ -75,6 +77,7 @@ function mountFeedback(config: SitepingHttpConfig) { /* endpoint guaranteed */ }
 | Option | Signature | Fires when |
 |---|---|---|
 | `onFeedbackSent` | `(feedback) => void` | A feedback was successfully created |
+| `onCommentAdded` | `(comment) => void` | A reply was posted from the panel's thread |
 | `onError` | `(error) => void` | A submission or fetch failed — see [error handling](/docs/widget#handling-errors) |
 | `onOpen` / `onClose` | `() => void` | The panel opened / closed |
 | `onAnnotationStart` / `onAnnotationEnd` | `() => void` | An annotation session began / ended — pause chat bubbles or analytics overlays here |

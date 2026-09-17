@@ -959,6 +959,128 @@ export const INBOX_CSS = `
   font-variant-numeric: tabular-nums;
 }
 
+/* ------------------------------------------------------------- discussion */
+.spd-thread-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.spd-thread-section .spd-meta-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.spd-thread-section .spd-meta-label svg {
+  width: 13px;
+  height: 13px;
+}
+.spd-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.spd-thread-empty {
+  font-size: 12px;
+  color: var(--spd-text-3);
+}
+.spd-comment {
+  position: relative;
+  padding: 9px 11px;
+  border: 1px solid var(--spd-border);
+  border-left-width: 2px;
+  border-radius: var(--spd-radius-sm);
+  background: var(--spd-surface);
+}
+/* The team's own replies read as "ours" — accent rail, like the send button. */
+.spd-comment[data-role="team"] {
+  border-left-color: var(--spd-accent);
+}
+.spd-comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.spd-comment-author {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--spd-text);
+}
+.spd-comment-role {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border: 1px solid var(--spd-border);
+  border-radius: 999px;
+  color: var(--spd-text-3);
+}
+.spd-comment[data-role="team"] .spd-comment-role {
+  color: var(--spd-accent);
+  border-color: var(--spd-accent);
+}
+.spd-comment-date {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--spd-text-3);
+}
+.spd-comment-body {
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--spd-text);
+}
+.spd-comment-del {
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+/* Keyboard users never hover — focus-within keeps the control reachable. */
+.spd-comment:hover .spd-comment-del,
+.spd-comment:focus-within .spd-comment-del {
+  opacity: 1;
+}
+.spd-comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.spd-comment-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 64px;
+  resize: vertical;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--spd-text);
+  background: var(--spd-bg);
+  border: 1px solid var(--spd-border-strong);
+  border-radius: var(--spd-radius-sm);
+}
+.spd-comment-input:focus-visible {
+  outline: 2px solid var(--spd-accent);
+  outline-offset: -1px;
+}
+.spd-comment-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--spd-text-3);
+}
+.spd-comment-form-foot .spd-btn-primary {
+  margin-left: auto;
+}
+.spd-comment-error {
+  font-size: 12px;
+  color: var(--spd-danger);
+}
+
 /* ------------------------------------------------------------ danger zone */
 .spd-danger-zone {
   display: flex;

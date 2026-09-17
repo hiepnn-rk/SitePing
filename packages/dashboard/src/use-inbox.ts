@@ -1,4 +1,5 @@
 import {
+  type CommentRecord,
   FEEDBACK_STATUSES,
   type FeedbackQuery,
   type FeedbackRecord,
@@ -56,7 +57,7 @@ function insertByCreatedAtDesc(list: FeedbackRecord[], record: FeedbackRecord): 
  *   `onError` callback.
  */
 export function useSitepingInbox(options: UseSitepingInboxOptions): InboxState {
-  const { source, store, endpoint, apiKey, onStatusChange, onDelete, onError } = options;
+  const { source, store, endpoint, apiKey, author, onStatusChange, onDelete, onError } = options;
 
   const projects = useMemo<readonly string[]>(
     () => (typeof options.projects === "string" ? [options.projects] : [...options.projects]),
@@ -74,6 +75,8 @@ export function useSitepingInbox(options: UseSitepingInboxOptions): InboxState {
   headersRef.current = options.headers;
   const callbacksRef = useRef({ onStatusChange, onDelete, onError });
   callbacksRef.current = { onStatusChange, onDelete, onError };
+  const authorRef = useRef(author);
+  authorRef.current = author;
 
   const src = useMemo<InboxSource>(() => {
     if (source) return source;
@@ -513,6 +516,70 @@ export function useSitepingInbox(options: UseSitepingInboxOptions): InboxState {
   );
 
   // -------------------------------------------------------------------------
+  // Comments — awaited, then committed (no optimistic insert)
+  // -------------------------------------------------------------------------
+
+  /** Replace one record everywhere it is cached: list, drawer, undo snapshot. */
+  const commitRecord = useCallback(
+    (id: string, update: (record: FeedbackRecord) => FeedbackRecord) => {
+      commitItems(itemsRef.current.map((f) => (f.id === id ? update(f) : f)));
+      if (openedCacheRef.current?.id === id) openedCacheRef.current = update(openedCacheRef.current);
+      if (undoRecordRef.current?.id === id) undoRecordRef.current = update(undoRecordRef.current);
+    },
+    [commitItems],
+  );
+
+  const canComment = author !== undefined && src.addComment !== undefined;
+
+  const addComment = useCallback(
+    async (id: string, body: string): Promise<void> => {
+      const add = srcRef.current.addComment;
+      const trimmed = body.trim();
+      // No author means nobody to attribute the reply to — the UI hides the
+      // composer, and a headless caller gets a no-op rather than an
+      // anonymous comment.
+      if (!add || !authorRef.current || trimmed.length === 0) return;
+
+      try {
+        const comment = await add(id, projectRef.current, {
+          body: trimmed,
+          authorName: authorRef.current.name,
+          authorEmail: authorRef.current.email ?? "",
+          // The server only honours `team` for an authenticated request;
+          // without an apiKey the reply is stored as `client`.
+          authorRole: "team",
+        });
+        commitRecord(id, (record) => ({ ...record, comments: [...record.comments, comment] }));
+      } catch (cause) {
+        const err = toError(cause);
+        callbacksRef.current.onError?.(err);
+        throw err;
+      }
+    },
+    [commitRecord],
+  );
+
+  const deleteComment = useCallback(
+    async (id: string, commentId: string): Promise<void> => {
+      const remove = srcRef.current.removeComment;
+      if (!remove) return;
+
+      try {
+        await remove(id, commentId, projectRef.current);
+        commitRecord(id, (record) => ({
+          ...record,
+          comments: record.comments.filter((c: CommentRecord) => c.id !== commentId),
+        }));
+      } catch (cause) {
+        const err = toError(cause);
+        callbacksRef.current.onError?.(err);
+        throw err;
+      }
+    },
+    [commitRecord],
+  );
+
+  // -------------------------------------------------------------------------
   // Public setters
   // -------------------------------------------------------------------------
 
@@ -567,6 +634,9 @@ export function useSitepingInbox(options: UseSitepingInboxOptions): InboxState {
     closeFeedback,
     changeStatus,
     deleteFeedback,
+    canComment,
+    addComment,
+    deleteComment,
     pendingUndo,
     undo,
   };

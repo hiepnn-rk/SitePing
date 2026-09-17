@@ -1,10 +1,15 @@
 import {
+  type CommentResponse,
   type DiagnosticsSnapshot,
   type FeedbackPayload,
+  type FeedbackResponse,
+  isUnsupported,
   isValidEmail,
   type PageScope,
   type SitepingConfig,
+  SitepingError,
   type SitepingInstance,
+  type SitepingLocale,
   type SitepingPublicEventListener,
   type SitepingPublicEvents,
 } from "@siteping/core";
@@ -18,8 +23,12 @@ import { Fab } from "./fab.js";
 import { createFocusTracker } from "./focus-tracker.js";
 import { createT, loadLocale, type TFunction } from "./i18n/index.js";
 import { getIdentity, type Identity, saveIdentity } from "./identity.js";
+import { getStoredLocale, resolveLocaleOptions, saveLocale } from "./locale-preference.js";
 import { MarkerManager } from "./markers.js";
 import type { Panel as PanelType } from "./panel.js";
+// Type-only: the panel (and its detail view) stays in the lazily imported
+// chunk — this import is erased at build time.
+import type { DetailCallbacks } from "./panel-detail.js";
 import { StoreClient } from "./store-client.js";
 import { buildStyles } from "./styles/base.js";
 import { buildThemeColors } from "./styles/theme.js";
@@ -68,6 +77,8 @@ function skippedInstance(): SitepingInstance {
     close: noop,
     refresh: noop,
     focusFeedback: () => false,
+    setLocale: () => Promise.resolve(),
+    getLocale: () => "en",
     on: () => noop,
     off: noop,
   };
@@ -192,20 +203,35 @@ export function launch(config: SitepingConfig): SitepingInstance {
     return skippedInstance();
   }
 
-  const locale = config.locale ?? "en";
+  // Locale switcher — the list the panel picker offers, empty when the host
+  // did not opt in (`localeSwitcher`). Resolved before the initial locale
+  // because a stored pick only counts while the picker still offers it.
+  const localeOptions = resolveLocaleOptions(config.localeSwitcher);
+  const storedLocale = localeOptions.length > 0 ? getStoredLocale() : null;
+  // The visitor's own pick wins over `config.locale`: they chose it in this
+  // browser, and a host default that silently overrode it on every reload
+  // would make the picker look broken.
+  let activeLocale: string =
+    storedLocale !== null && localeOptions.includes(storedLocale) ? storedLocale : (config.locale ?? "en");
   // Kick off the locale fetch immediately. English is bundled synchronously
   // and used as the fallback while the chunk is in flight. The launcher
   // awaits `localeReady` before rendering markers and re-localizes the FAB
   // and popup once the dictionary lands — both are mounted synchronously so
   // the widget is interactive immediately, but their labels start in the
   // English fallback until the chunk arrives.
-  const localeReady: Promise<unknown> =
-    locale === "en"
+  const fetchLocale = (code: string): Promise<unknown> =>
+    code === "en"
       ? Promise.resolve()
-      : loadLocale(locale).catch(() => {
+      : loadLocale(code).catch(() => {
           /* fallback to English — already handled by createT */
         });
-  const t = createT(locale);
+  const localeReady: Promise<unknown> = fetchLocale(activeLocale);
+  let currentT = createT(activeLocale);
+  // One stable indirection shared by every component: `setLocale` swaps the
+  // dictionary underneath them instead of re-wiring each one. Components that
+  // call `t` lazily (markers, popup) pick up the new language for free; the
+  // ones that bake strings into DOM at build time re-label in `applyLocale`.
+  const t: TFunction = (key) => currentT(key);
 
   // Page scope — concrete URL + optional template, used to keep annotations
   // and panel results scoped to the current page. The widget calls this on
@@ -225,7 +251,7 @@ export function launch(config: SitepingConfig): SitepingInstance {
   log("Initializing widget", {
     projectName: config.projectName,
     theme: config.theme ?? "light",
-    locale,
+    locale: activeLocale,
     scopeAnnotationsByUrl,
   });
 
@@ -259,6 +285,7 @@ export function launch(config: SitepingConfig): SitepingInstance {
   if (config.onOpen) bus.on("open", config.onOpen);
   if (config.onClose) bus.on("close", config.onClose);
   if (config.onFeedbackSent) bus.on("feedback:sent", config.onFeedbackSent);
+  if (config.onCommentAdded) bus.on("comment:added", config.onCommentAdded);
   if (config.onError) bus.on("feedback:error", config.onError);
   if (config.onAnnotationStart) bus.on("annotation:start", config.onAnnotationStart);
   if (config.onAnnotationEnd) bus.on("annotation:end", config.onAnnotationEnd);
@@ -270,6 +297,7 @@ export function launch(config: SitepingConfig): SitepingInstance {
   const publicBridges: { [K in keyof SitepingPublicEvents]: () => void } = {
     "feedback:sent": () => bus.on("feedback:sent", (fb) => publicBus.emit("feedback:sent", fb)),
     "feedback:deleted": () => bus.on("feedback:deleted", (id) => publicBus.emit("feedback:deleted", id)),
+    "comment:added": () => bus.on("comment:added", (comment) => publicBus.emit("comment:added", comment)),
     "feedback:error": () => bus.on("feedback:error", (err) => publicBus.emit("feedback:error", err)),
     "panel:open": () => bus.on("open", () => publicBus.emit("panel:open")),
     "panel:close": () => bus.on("close", () => publicBus.emit("panel:close")),
@@ -324,7 +352,7 @@ export function launch(config: SitepingConfig): SitepingInstance {
   document.body.appendChild(liveRegion);
 
   // Components outside Shadow DOM
-  const tooltip = new Tooltip(colors, locale);
+  const tooltip = new Tooltip(colors, activeLocale);
   const markers = new MarkerManager(colors, tooltip, bus, t, liveRegion);
 
   // Components inside Shadow DOM
@@ -351,15 +379,83 @@ export function launch(config: SitepingConfig): SitepingInstance {
   // initial load racing the first navigation) could render a stale page's
   // markers out of order, since markers.render() is a full clear-and-rebuild.
   let markerGeneration = 0;
+
+  /**
+   * Resolve the author for a write: host-provided identity wins, then the
+   * one saved in localStorage, then the modal. Returns `null` when the
+   * visitor cancels the modal. Only the modal's answer is persisted —
+   * `config.identity` stays the host's to own.
+   */
+  async function resolveIdentity(): Promise<Identity | null> {
+    const known = config.identity ?? getIdentity();
+    if (known) return known;
+    const entered = await promptIdentity(shadow, t);
+    if (!entered) return null;
+    saveIdentity(entered);
+    return entered;
+  }
+
+  /**
+   * Post a reply on a feedback's thread. Lives here rather than in the panel
+   * because it needs the same identity resolution a submission does — a
+   * visitor who has never left a feedback can still answer one.
+   */
+  async function postComment(feedback: FeedbackResponse, body: string): Promise<CommentResponse> {
+    const identity = await resolveIdentity();
+    if (!identity) {
+      // The visitor closed the identity modal: nothing to post, and this is
+      // not an error the host should hear about.
+      throw new SitepingError("Comment cancelled: no identity provided", "VALIDATION", false);
+    }
+    try {
+      const comment = await client.addComment(feedback.id, {
+        body,
+        authorName: identity.name,
+        authorEmail: identity.email ?? "",
+        // The widget speaks for the site's visitor; `team` replies come from
+        // the dashboard, and the server enforces that too.
+        authorRole: "client",
+      });
+      bus.emit("comment:added", comment);
+      return comment;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      // An unsupported backend is a capability answer, not a failure worth
+      // waking `config.onError` — the panel turns the thread read-only.
+      if (!isUnsupported(err)) bus.emit("feedback:error", err);
+      throw err;
+    }
+  }
+
+  /**
+   * Discussion options for the panel: absent when the host opted out, and
+   * without `post` when the backend cannot store comments (store mode
+   * without `addComment`), which renders the thread read-only.
+   */
+  const commentOptions: NonNullable<DetailCallbacks["comments"]> | undefined =
+    config.comments === false ? undefined : client.supportsComments ? { post: postComment } : {};
+
   async function loadPanel(): Promise<PanelType | null> {
     if (destroyed) return null;
     if (panelInstance) return panelInstance;
     if (!panelPromise) {
       panelPromise = import("./panel.js").then((mod) => {
         if (destroyed) return null;
-        panelInstance = new mod.Panel(shadow, colors, bus, client, config.projectName, markers, t, locale, {
+        panelInstance = new mod.Panel(shadow, colors, bus, client, config.projectName, markers, t, activeLocale, {
           getScope,
           scopeAnnotationsByUrl,
+          ...(commentOptions ? { comments: commentOptions } : {}),
+          ...(localeOptions.length > 0
+            ? {
+                localeSwitcher: {
+                  locales: localeOptions,
+                  current: activeLocale,
+                  onChange: (next: string) => {
+                    void applyLocale(next);
+                  },
+                },
+              }
+            : {}),
         });
         return panelInstance;
       });
@@ -448,11 +544,54 @@ export function launch(config: SitepingConfig): SitepingInstance {
     document.addEventListener("contextmenu", onContextMenu);
   }
 
+  /**
+   * Switch the UI language at runtime — backs both `instance.setLocale()` and
+   * the panel's language picker.
+   *
+   * Loads the dictionary first so nothing renders in a half-translated state,
+   * then re-labels each mounted surface. The FAB and annotator relabel in
+   * place (they already own `refreshLabels()` for the initial lazy load); the
+   * panel is rebuilt instead, because it bakes its chrome into DOM in the
+   * constructor and a second relabelling path would be a second source of
+   * truth for every string. The chunk is already loaded, so a rebuild is DOM
+   * work only — no network, no flash of an empty panel.
+   */
+  async function applyLocale(next: string): Promise<void> {
+    if (destroyed || next === activeLocale) return;
+    await fetchLocale(next);
+    if (destroyed) return;
+
+    activeLocale = next;
+    currentT = createT(next);
+    saveLocale(next);
+    tooltip.setLocale(next);
+    fab.refreshLabels();
+    annotator.refreshLabels();
+
+    if (!panelInstance) {
+      // Panel never opened (or still loading): markers are the only localized
+      // surface on screen, and they read `t` lazily — re-render to pick it up.
+      await doRefresh().catch(() => {});
+      return;
+    }
+
+    const wasOpen = panelInstance.isCurrentlyOpen;
+    panelInstance.destroy();
+    panelInstance = null;
+    panelPromise = null;
+    const rebuilt = await loadPanel();
+    if (destroyed) return;
+    // `reopen()` reloads the list (which re-renders markers) without emitting
+    // a second `panel:open` — from the user's side the panel never closed.
+    if (wasOpen) await rebuilt?.reopen();
+    else await doRefresh().catch(() => {});
+  }
+
   // Once the locale dictionary lands, swap the FAB + popup labels from the
   // English fallback to the configured language. `t` already resolves to the
   // loaded dictionary at call time, so the markers list rendered below (which
   // calls `t` lazily) only needs to wait on `localeReady` once.
-  if (locale !== "en") {
+  if (activeLocale !== "en") {
     localeReady.then(() => {
       if (destroyed) return;
       fab.refreshLabels();
@@ -532,7 +671,9 @@ export function launch(config: SitepingConfig): SitepingInstance {
         viewport: `${window.innerWidth}x${window.innerHeight}`,
         userAgent: navigator.userAgent,
         authorName: identity.name,
-        authorEmail: identity.email,
+        // Optional on the identity, always a string on the wire — every store
+        // and the HTTP schema treat "" as "no address given".
+        authorEmail: identity.email ?? "",
         annotations: [annotation],
         clientId,
         screenshotDataUrl: screenshotDataUrl ?? null,
@@ -758,6 +899,8 @@ export function launch(config: SitepingConfig): SitepingInstance {
     refresh: () => {
       void doRefresh().catch(() => {});
     },
+    setLocale: (next: SitepingLocale) => applyLocale(next),
+    getLocale: () => activeLocale,
     on: <K extends keyof SitepingPublicEvents>(event: K, listener: SitepingPublicEventListener<K>) =>
       publicBus.on(event, listener),
     off: <K extends keyof SitepingPublicEvents>(event: K, listener: SitepingPublicEventListener<K>) => {
@@ -839,9 +982,14 @@ function promptIdentity(shadowRoot: ShadowRoot, t: TFunction): Promise<Identity 
     nameInput.type = "text";
     nameInput.placeholder = t("identity.namePlaceholder");
     nameInput.style.marginBottom = "14px";
+    nameInput.addEventListener("input", () => {
+      nameInput.style.borderColor = "";
+    });
 
     const emailLabel = document.createElement("label");
     emailLabel.className = "sp-input-label";
+    // Only the name is required. The label says so up front rather than
+    // leaving visitors to discover it by submitting with the field empty.
     emailLabel.textContent = t("identity.emailLabel");
     emailLabel.setAttribute("for", emailInputId);
     const emailInput = document.createElement("input");
@@ -849,6 +997,12 @@ function promptIdentity(shadowRoot: ShadowRoot, t: TFunction): Promise<Identity 
     emailInput.id = emailInputId;
     emailInput.type = "email";
     emailInput.placeholder = t("identity.emailPlaceholder");
+    emailInput.required = false;
+    // Clear the invalid-format outline as soon as the visitor edits the field
+    // (including clearing it, which is now a valid state).
+    emailInput.addEventListener("input", () => {
+      emailInput.style.borderColor = "";
+    });
 
     const btnRow = document.createElement("div");
     btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:20px;";
@@ -875,12 +1029,19 @@ function promptIdentity(shadowRoot: ShadowRoot, t: TFunction): Promise<Identity 
     submitBtn.addEventListener("click", () => {
       const name = nameInput.value.trim();
       const email = emailInput.value.trim();
-      if (!name || !email) return;
-      // Same pattern the server schema enforces — what the modal accepts here
-      // is persisted and replayed on every submission, so it must never be
-      // something the server rejects.
-      if (!isValidEmail(email)) {
+      // The name is the only required field.
+      if (!name) {
+        nameInput.style.borderColor = "var(--sp-type-bug, #ef4444)";
+        nameInput.focus();
+        return;
+      }
+      // An address that *is* typed must match the pattern the server schema
+      // enforces — what the modal accepts here is persisted and replayed on
+      // every submission, so it must never be something the server rejects.
+      // An empty field is submitted as "no email given".
+      if (email && !isValidEmail(email)) {
         emailInput.style.borderColor = "var(--sp-type-bug, #ef4444)";
+        emailInput.focus();
         return;
       }
       closeModal({ name, email });

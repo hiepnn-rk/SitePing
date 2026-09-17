@@ -1,6 +1,9 @@
 import type {
   AnnotationRecord,
   AnnotationResponse,
+  CommentCreateInput,
+  CommentRecord,
+  CommentResponse,
   DiagnosticsSnapshot,
   FeedbackPage,
   FeedbackQuery,
@@ -72,6 +75,7 @@ export function makeRecord(overrides: Partial<FeedbackRecord> = {}): FeedbackRec
     createdAt: new Date("2026-07-20T10:00:00.000Z"),
     updatedAt: new Date("2026-07-20T10:00:00.000Z"),
     annotations,
+    comments: [],
     screenshotUrl: null,
     screenshotRegion: null,
     diagnostics: null,
@@ -107,6 +111,32 @@ export function makeAnnotationResponse(overrides: Partial<AnnotationResponse> = 
   };
 }
 
+export function makeComment(overrides: Partial<CommentRecord> = {}): CommentRecord {
+  return {
+    id: "cm-1",
+    feedbackId: "fb-1",
+    body: "Still happening on Safari",
+    authorName: "Alex Client",
+    authorEmail: "alex@client.example",
+    authorRole: "client",
+    createdAt: new Date("2026-07-20T12:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+export function makeCommentResponse(overrides: Partial<CommentResponse> = {}): CommentResponse {
+  return {
+    id: "cm-resp-1",
+    feedbackId: "fb-resp-1",
+    body: "Still happening on Safari",
+    authorName: "Alex Client",
+    authorEmail: "alex@client.example",
+    authorRole: "client",
+    createdAt: "2026-07-20T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
 export function makeResponse(overrides: Partial<FeedbackResponse> = {}): FeedbackResponse {
   return {
     id: "fb-resp-1",
@@ -124,6 +154,7 @@ export function makeResponse(overrides: Partial<FeedbackResponse> = {}): Feedbac
     createdAt: "2026-07-20T10:00:00.000Z",
     updatedAt: "2026-07-20T11:00:00.000Z",
     annotations: [makeAnnotationResponse()],
+    comments: [],
     screenshotUrl: null,
     screenshotRegion: null,
     diagnostics: null,
@@ -165,13 +196,23 @@ export interface TestSource extends InboxSource {
   setStatus: Mock<InboxSource["setStatus"]>;
   remove: Mock<InboxSource["remove"]>;
   readonly records: FeedbackRecord[];
-  control: { failNextSetStatus: Error | null; failNextRemove: Error | null };
+  control: { failNextSetStatus: Error | null; failNextRemove: Error | null; failNextComment: Error | null };
 }
 
-/** In-memory InboxSource driving the hook the way the real store/endpoint would. */
-export function makeSource(seed: FeedbackRecord[] = []): TestSource {
+/**
+ * In-memory InboxSource driving the hook the way the real store/endpoint would.
+ *
+ * `comments: false` omits `addComment`/`removeComment`, i.e. a source built
+ * before comments — the shape that must leave the inbox read-only.
+ */
+export function makeSource(seed: FeedbackRecord[] = [], options?: { comments?: boolean }): TestSource {
   let records = [...seed].sort(byCreatedDesc);
-  const control = { failNextSetStatus: null as Error | null, failNextRemove: null as Error | null };
+  const control = {
+    failNextSetStatus: null as Error | null,
+    failNextRemove: null as Error | null,
+    failNextComment: null as Error | null,
+  };
+  let commentSeq = 0;
 
   const list = vi.fn(async (query: FeedbackQuery): Promise<FeedbackPage> => {
     let rs = records.filter((r) => r.projectName === query.projectName);
@@ -215,10 +256,43 @@ export function makeSource(seed: FeedbackRecord[] = []): TestSource {
     records = records.filter((r) => r.id !== id);
   });
 
+  const addComment = vi.fn(
+    async (feedbackId: string, _projectName: string, input: CommentCreateInput): Promise<CommentRecord> => {
+      if (control.failNextComment) {
+        const err = control.failNextComment;
+        control.failNextComment = null;
+        throw err;
+      }
+      const rec = records.find((r) => r.id === feedbackId);
+      if (!rec) throw new StoreNotFoundError();
+      commentSeq += 1;
+      const comment: CommentRecord = {
+        id: `cm-${commentSeq}`,
+        feedbackId,
+        ...input,
+        createdAt: new Date("2026-07-21T09:00:00.000Z"),
+      };
+      records = records.map((r) => (r.id === feedbackId ? { ...r, comments: [...r.comments, comment] } : r));
+      return comment;
+    },
+  );
+
+  const removeComment = vi.fn(async (feedbackId: string, commentId: string): Promise<void> => {
+    if (control.failNextComment) {
+      const err = control.failNextComment;
+      control.failNextComment = null;
+      throw err;
+    }
+    records = records.map((r) =>
+      r.id === feedbackId ? { ...r, comments: r.comments.filter((c) => c.id !== commentId) } : r,
+    );
+  });
+
   return {
     list,
     setStatus,
     remove,
+    ...(options?.comments === false ? {} : { addComment, removeComment }),
     control,
     get records() {
       return records;

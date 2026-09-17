@@ -1,5 +1,19 @@
-import type { AssertEqual, FeedbackPayload, FeedbackStatus, FeedbackType, Prettify } from "@siteping/core";
-import { CONSOLE_DIAGNOSTIC_LEVELS, EMAIL_PATTERN, FEEDBACK_STATUSES, FEEDBACK_TYPES } from "@siteping/core";
+import type {
+  AssertEqual,
+  CommentDeletePayload,
+  CommentPayload,
+  FeedbackPayload,
+  FeedbackStatus,
+  FeedbackType,
+  Prettify,
+} from "@siteping/core";
+import {
+  COMMENT_AUTHOR_ROLES,
+  CONSOLE_DIAGNOSTIC_LEVELS,
+  EMAIL_PATTERN,
+  FEEDBACK_STATUSES,
+  FEEDBACK_TYPES,
+} from "@siteping/core";
 import * as zod from "zod";
 
 // Namespace import required: Zod publishes dual CJS/ESM, and bundlers (tsup, vitest) may
@@ -74,6 +88,14 @@ export const screenshotRegionSchema = z.strictObject({
   hPct: z.number().min(0).max(1),
 });
 
+/**
+ * Author email — optional everywhere a human types one: the widget's identity
+ * modal only requires a name and sends `""` when the visitor skips the field.
+ * Anything non-empty is validated against the same core pattern the modal
+ * enforces, so an address the modal accepts is never a 400 here.
+ */
+const authorEmailSchema = z.union([z.literal(""), z.email({ pattern: EMAIL_PATTERN }).max(200)]);
+
 export const feedbackCreateSchema = z.object({
   projectName: z.string().min(1).max(200),
   type: z.enum(FEEDBACK_TYPES),
@@ -91,9 +113,8 @@ export const feedbackCreateSchema = z.object({
   viewport: z.string().min(1).max(50),
   userAgent: z.string().min(1).max(500),
   authorName: z.string().min(1).max(200),
-  // The widget's identity modal validates against the same core pattern, so
-  // an address the modal accepts (and persists) is never a 400 here.
-  authorEmail: z.email({ pattern: EMAIL_PATTERN }).max(200),
+  // Optional — see `authorEmailSchema`.
+  authorEmail: authorEmailSchema,
   annotations: z.array(annotationSchema).max(50),
   // Restrict to URL-safe identifiers. The widget generates UUIDs (or a
   // Date+Math.random fallback), both of which match. Anything outside this
@@ -124,6 +145,32 @@ export const feedbackCreateSchema = z.object({
   // this when `captureDiagnostics` is enabled; null + omitted are both
   // accepted so existing clients keep working unchanged.
   diagnostics: diagnosticsSchema.nullable().optional(),
+});
+
+/**
+ * Comment create payload. `feedbackId` is what tells this POST body apart
+ * from a feedback submission on the same endpoint, and `projectName` scopes
+ * the write so a caller cannot comment into another project's thread.
+ *
+ * `authorRole` is accepted but not trusted: the handler downgrades `"team"`
+ * to `"client"` unless the request carries the API key, so a visitor cannot
+ * post as the project team.
+ */
+export const commentCreateSchema = z.object({
+  feedbackId: z.string().min(1).max(200),
+  projectName: z.string().min(1).max(200),
+  // Same cap as a feedback message — a thread reply is the same kind of text.
+  body: z.string().trim().min(1).max(5000),
+  authorName: z.string().min(1).max(200),
+  authorEmail: authorEmailSchema,
+  authorRole: z.enum(COMMENT_AUTHOR_ROLES),
+});
+
+/** Comment delete payload — `commentId` distinguishes it from a feedback delete. */
+export const commentDeleteSchema = z.object({
+  feedbackId: z.string().min(1).max(200),
+  commentId: z.string().min(1).max(200),
+  projectName: z.string().min(1).max(200),
 });
 
 export const feedbackPatchSchema = z.object({
@@ -229,6 +276,18 @@ const _deleteSchemaMatchesInput: AssertEqual<
 void _deleteSchemaMatchesInput;
 const _querySchemaMatchesInput: AssertEqual<Prettify<zod.z.infer<typeof getQuerySchema>>, GetQueryInput> = true;
 void _querySchemaMatchesInput;
+// The comment wire shapes live in core (both the widget and the dashboard
+// send them), so they lock against core's payload types directly.
+const _commentSchemaMatchesPayload: AssertEqual<
+  Prettify<zod.z.infer<typeof commentCreateSchema>>,
+  CommentPayload
+> = true;
+void _commentSchemaMatchesPayload;
+const _commentDeleteSchemaMatchesPayload: AssertEqual<
+  Prettify<zod.z.infer<typeof commentDeleteSchema>>,
+  CommentDeletePayload
+> = true;
+void _commentDeleteSchemaMatchesPayload;
 
 /** Single validation issue extracted from a `ZodError`. */
 export interface ValidationIssue {

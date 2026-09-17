@@ -45,6 +45,7 @@ function makeRecord(seed: RecordSeed): FeedbackRecord {
     createdAt: EPOCH,
     updatedAt: EPOCH,
     annotations: [],
+    comments: [],
     screenshotUrl: null,
     screenshotRegion: null,
     diagnostics: null,

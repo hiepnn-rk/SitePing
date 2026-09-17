@@ -43,11 +43,13 @@ Any framework that speaks Web `Request`/`Response` (Hono, Remix, SvelteKit, …)
 - **Reads are public by default.** Without an `apiKey`, anyone who knows the URL can list feedbacks (with emails redacted — see below).
 - **Destructive calls are not.** PATCH and DELETE answer `401` unless you set an `apiKey` or explicitly opt out with `requireAuthForDestructive: false`. In production the factory throws at startup rather than run without a key.
 - `OPTIONS` is always public — preflights must work.
+- **A visitor cannot post as your team.** [Comment](/docs/comments) writes accept an `authorRole`, but `team` is downgraded to `client` unless the request carries the API key.
 
 ### What responses expose
 
 - `clientId` is stripped from **every** response.
 - `authorEmail` is blanked unless the request carries a valid `Authorization: Bearer` header. The one exception: a successful `POST` echoes the email back to its author.
+- Comment author emails follow the same rule — a redacted read blanks the whole thread, not just the feedback.
 
 ## HTTP reference
 
@@ -55,10 +57,10 @@ One endpoint, five methods. All bodies are JSON.
 
 | Method | Purpose | Success |
 |---|---|---|
-| `POST` | Create feedback (widget submissions) | `201` + record. A replayed `clientId` returns the existing record instead of failing (and never notifies webhooks twice); a `clientId` already used by **another** project is refused with `409` |
+| `POST` | Create feedback (widget submissions) — or a [comment](/docs/comments), when the body carries `feedbackId` | `201` + record. A replayed `clientId` returns the existing record instead of failing (and never notifies webhooks twice); a `clientId` already used by **another** project is refused with `409` |
 | `GET` | List feedbacks | `200` + `{ feedbacks, total }`, with `Cache-Control: private, max-age=5` |
 | `PATCH` | Change a status | `200` + updated record |
-| `DELETE` | Delete one or all | `200` + `{ deleted: true }` |
+| `DELETE` | Delete one feedback, all of them, or one [comment](/docs/comments) (body with `commentId`) | `200` + `{ deleted: true }` |
 | `OPTIONS` | CORS preflight | `204` |
 
 **GET query parameters:** `projectName` (required), `page` (default 1), `limit` (default 50, max 100), `type`, `status`, `statuses` (comma-separated list, max 4 — e.g. `statuses=open,in_progress`), `search`, `url`, `urlPattern`.
@@ -67,11 +69,13 @@ One endpoint, five methods. All bodies are JSON.
 
 **DELETE body:** `{ id, projectName }` for one record, or `{ projectName, deleteAll: true }` for everything in the project.
 
-**Errors:** invalid JSON → `400 { error }`; validation failure → `400 { errors: [{ field, message }] }`; unknown id → `404`; `clientId` owned by another project → `409 { error }`; missing table → `500` with a hint to run `npx prisma db push`; anything else → `500 { error: "Internal server error" }`.
+**Comment bodies:** `POST { feedbackId, projectName, body, authorName, authorEmail, authorRole }` appends to a thread (`201` + the comment); `DELETE { feedbackId, commentId, projectName }` removes one (and needs the API key, like every destructive call). A store without comment support answers `501` — see [Comments](/docs/comments).
+
+**Errors:** invalid JSON → `400 { error }`; validation failure → `400 { errors: [{ field, message }] }`; unknown id → `404`; comments unsupported by the store → `501 { error }`; `clientId` owned by another project → `409 { error }`; missing table → `500` with a hint to run `npx prisma db push`; anything else → `500 { error: "Internal server error" }`.
 
 ### Validation limits worth knowing
 
-`message` ≤ 5000 chars · `annotations` ≤ 50 per feedback · `screenshotDataUrl` ≤ 1.5 MB, JPEG/PNG/WebP only · `diagnostics` ≤ 50 console + 20 network entries · `clientId` matches `[a-zA-Z0-9_-]+` · `authorEmail` matches the same Unicode-aware pattern as the widget's identity modal (`françois@exemple.fr` is fine), so an address the modal accepts is never rejected here.
+`message` ≤ 5000 chars · a comment `body` ≤ 5000 chars (trimmed, non-empty) · `annotations` ≤ 50 per feedback · `screenshotDataUrl` ≤ 1.5 MB, JPEG/PNG/WebP only · `diagnostics` ≤ 50 console + 20 network entries · `clientId` matches `[a-zA-Z0-9_-]+` · `authorEmail` is either empty (the visitor skipped it — only the name is required) or matches the same Unicode-aware pattern as the widget's identity modal (`françois@exemple.fr` is fine), so an address the modal accepts is never rejected here.
 
 ## Database schema
 
@@ -98,6 +102,7 @@ model SitepingFeedback {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   annotations      SitepingAnnotation[]
+  comments         SitepingComment[]
 
   @@index([projectName])
   @@index([projectName, status, createdAt])
@@ -131,7 +136,22 @@ model SitepingAnnotation {
 
   @@index([feedbackId])
 }
+
+model SitepingComment {
+  id          String           @id @default(cuid())
+  feedbackId  String
+  feedback    SitepingFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  body        String           @db.Text
+  authorName  String
+  authorEmail String
+  authorRole  String           @default("client")
+  createdAt   DateTime         @default(now())
+
+  @@index([feedbackId, createdAt])
+}
 ```
+
+`SitepingComment` is the newest of the three. A schema without it keeps serving feedbacks — threads read as empty and comment writes answer `501` — so an existing deployment upgrades on its own schedule with `npx @siteping/cli sync && npx prisma db push`.
 
 > `@db.Text` targets PostgreSQL and MySQL. On SQLite, remove those attributes — plain `String` is already unbounded there.
 

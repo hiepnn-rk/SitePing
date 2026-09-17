@@ -855,6 +855,61 @@ export function buildStyles(colors: ThemeColors): string {
       gap: 8px;
     }
 
+    /* ---- Locale switcher (header) ---- */
+
+    .sp-locale {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 8px 0 8px;
+      height: 26px;
+      border-radius: var(--sp-radius-full);
+      border: 1px solid var(--sp-border);
+      color: var(--sp-text-tertiary);
+      transition: border-color 0.2s ease, color 0.2s ease;
+    }
+
+    .sp-locale:hover,
+    .sp-locale:focus-within {
+      border-color: var(--sp-accent);
+      color: var(--sp-text-secondary);
+    }
+
+    .sp-locale-icon {
+      width: 13px;
+      height: 13px;
+      flex: none;
+    }
+
+    .sp-locale-select {
+      appearance: none;
+      -webkit-appearance: none;
+      border: none;
+      background: transparent;
+      color: inherit;
+      font-family: var(--sp-font);
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1;
+      padding: 0 2px;
+      cursor: pointer;
+      max-width: 96px;
+    }
+
+    .sp-locale-select:focus-visible {
+      outline: 2px solid var(--sp-accent);
+      outline-offset: 2px;
+      border-radius: var(--sp-radius-sm, 4px);
+    }
+
+    /* The option list is rendered by the platform, outside the Shadow DOM's
+       styling reach on some engines — set both colours so it stays readable
+       against a dark page chrome. */
+    .sp-locale-select option {
+      background: var(--sp-bg);
+      color: var(--sp-text);
+    }
+
     .sp-btn-delete-all {
       padding: 5px 12px;
       border-radius: var(--sp-radius-full);

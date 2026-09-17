@@ -106,6 +106,7 @@ function makeFeedbackResponse(overrides: Partial<FeedbackResponse> = {}): Feedba
     annotations: [],
     urlPattern: null,
     screenshotUrl: null,
+    comments: [],
     screenshotRegion: null,
     diagnostics: null,
     ...overrides,

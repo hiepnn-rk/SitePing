@@ -40,6 +40,7 @@ model SitepingFeedback {
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
   annotations   SitepingAnnotation[]
+  comments      SitepingComment[]
 
   @@index([projectName])
   @@index([projectName, status, createdAt])
@@ -72,6 +73,19 @@ model SitepingAnnotation {
   createdAt        DateTime         @default(now())
 
   @@index([feedbackId])
+}
+
+model SitepingComment {
+  id          String           @id @default(cuid())
+  feedbackId  String
+  feedback    SitepingFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  body        String           @db.Text
+  authorName  String
+  authorEmail String
+  authorRole  String           @default("client")
+  createdAt   DateTime         @default(now())
+
+  @@index([feedbackId, createdAt])
 }
 `;
 
@@ -193,6 +207,7 @@ model SitepingFeedback {
   resolvedAt    DateTime?
   createdAt     DateTime            @default(now())
   annotations   SitepingAnnotation[]
+  comments      SitepingComment[]
 
   @@index([projectName])
   @@index([projectName, status, createdAt])
@@ -225,6 +240,19 @@ model SitepingAnnotation {
   createdAt        DateTime         @default(now())
 
   @@index([feedbackId])
+}
+
+model SitepingComment {
+  id          String           @id @default(cuid())
+  feedbackId  String
+  feedback    SitepingFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  body        String           @db.Text
+  authorName  String
+  authorEmail String
+  authorRole  String           @default("client")
+  createdAt   DateTime         @default(now())
+
+  @@index([feedbackId, createdAt])
 }
 `;
 

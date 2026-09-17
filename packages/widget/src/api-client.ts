@@ -1,4 +1,6 @@
 import {
+  type CommentCreateInput,
+  type CommentResponse,
   errorFromResponse,
   type FeedbackPayload,
   type FeedbackQuery,
@@ -26,6 +28,17 @@ export interface WidgetClient {
   resolveFeedback(id: string, resolved: boolean): Promise<FeedbackResponse>;
   deleteFeedback(id: string): Promise<void>;
   deleteAllFeedbacks(projectName: string): Promise<void>;
+  /**
+   * Whether this client's backend can persist comments.
+   *
+   * Known up front in store mode (the store either has `addComment` or it
+   * does not); in HTTP mode the server's capability is only discoverable by
+   * asking, so this stays `true` and a `SitepingUnsupportedError` (HTTP 501)
+   * from the first post is what turns the thread read-only.
+   */
+  readonly supportsComments: boolean;
+  /** Append a comment to a feedback's thread. */
+  addComment(feedbackId: string, input: CommentCreateInput): Promise<CommentResponse>;
 }
 
 /**
@@ -86,8 +99,11 @@ async function resilientFetch(url: string, init: RequestInit, retries = MAX_RETR
       });
       clearTimeout(timeout);
 
-      // Don't retry client errors (4xx) — only server errors (5xx)
-      if (response.ok || (response.status >= 400 && response.status < 500)) {
+      // Don't retry client errors (4xx) — only server errors (5xx). 501 is
+      // the exception on the 5xx side: "this deployment cannot do that" is a
+      // settled answer (a store without `addComment`), so retrying it just
+      // delays the caller by the full backoff for nothing.
+      if (response.ok || (response.status >= 400 && response.status < 500) || response.status === 501) {
         return response;
       }
 
@@ -190,8 +206,9 @@ function normalizeName(value: string): string {
   return value.trim();
 }
 
-function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
+/** Optional on the identity, always a string on the wire — both normalize to "" when absent. */
+function normalizeEmail(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase();
 }
 
 /**
@@ -291,6 +308,13 @@ async function parseJsonAs<T>(response: Response): Promise<T> {
 }
 
 export class ApiClient implements WidgetClient {
+  /**
+   * Always `true`: a server that predates comments is indistinguishable from
+   * one that supports them until a post comes back 501, and refusing to show
+   * the composer on a hunch would hide the feature from everyone.
+   */
+  readonly supportsComments = true;
+
   constructor(
     private readonly endpoint: string,
     private readonly projectName: string,
@@ -404,5 +428,36 @@ export class ApiClient implements WidgetClient {
     if (!response.ok) {
       throw await errorFromResponse(response, "Failed to delete all feedbacks");
     }
+  }
+
+  /**
+   * POST a comment onto an existing thread — `feedbackId` in the body is what
+   * routes it to the comment resource on the shared endpoint.
+   *
+   * Deliberately NOT queued for retry: the offline queue exists so a
+   * feedback (with its annotation and screenshot) is never lost, and it
+   * replays without any UI attached. A comment is a live conversational turn
+   * — the composer is on screen, so the visitor decides whether to resend.
+   */
+  async addComment(feedbackId: string, input: CommentCreateInput): Promise<CommentResponse> {
+    let response: Response;
+    try {
+      response = await resilientFetch(this.endpoint, {
+        method: "POST",
+        headers: await buildRequestHeaders(this.auth, true),
+        body: JSON.stringify({ feedbackId, projectName: this.projectName, ...input }),
+      });
+    } catch (error) {
+      throw networkErrorFromException(error, "Failed to post comment");
+    }
+
+    if (!response.ok) {
+      // 501 becomes a SitepingUnsupportedError here (core's shared mapping) —
+      // the panel reads that as "this server has no comments" and hides the
+      // composer instead of letting the visitor retype.
+      throw await errorFromResponse(response, "Failed to post comment");
+    }
+
+    return parseJsonAs<CommentResponse>(response);
   }
 }

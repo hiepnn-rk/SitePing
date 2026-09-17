@@ -24,6 +24,7 @@ export const ru: Translations = {
   "panel.cancel": "Отмена",
   "panel.confirmDelete": "Удалить",
   "panel.loadMore": "Показать ещё ({remaining} осталось)",
+  "panel.language": "Язык",
 
   // Status filter labels
   "panel.statusAll": "Все",
@@ -73,7 +74,7 @@ export const ru: Translations = {
   "identity.title": "Представьтесь",
   "identity.nameLabel": "Имя",
   "identity.namePlaceholder": "Ваше имя",
-  "identity.emailLabel": "Email",
+  "identity.emailLabel": "Email (необязательно)",
   "identity.emailPlaceholder": "ваш@email.com",
   "identity.cancel": "Отмена",
   "identity.submit": "Продолжить",
@@ -145,6 +146,17 @@ export const ru: Translations = {
   "detail.diagnostics.expand": "Показать диагностику",
   "detail.diagnostics.collapse": "Скрыть диагностику",
   "detail.diagnostics.noEntries": "Нет записей",
+
+  // Discussion thread
+  "comments.title": "Обсуждение",
+  "comments.empty": "Пока нет ответов.",
+  "comments.placeholder": "Написать ответ…",
+  "comments.submit": "Ответить",
+  "comments.sending": "Отправка…",
+  "comments.error": "Не удалось отправить ответ",
+  "comments.hint": "⌘/Ctrl + Enter — отправить",
+  "comments.roleTeam": "Команда",
+  "comments.roleClient": "Клиент",
 
   // Keyboard shortcuts overlay
   "shortcuts.title": "Горячие клавиши",

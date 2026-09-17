@@ -131,6 +131,7 @@ function makeFeedback(overrides: Partial<FeedbackResponse> = {}): FeedbackRespon
     annotations: [makeAnnotation()],
     urlPattern: null,
     screenshotUrl: null,
+    comments: [],
     screenshotRegion: null,
     diagnostics: null,
     ...overrides,

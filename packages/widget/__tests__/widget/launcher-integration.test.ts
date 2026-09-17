@@ -77,6 +77,8 @@ vi.mock(new URL("../../src/markers.js", import.meta.url).pathname, () => ({
   }),
 }));
 
+const mockTooltipSetLocale = vi.fn();
+
 vi.mock(new URL("../../src/tooltip.js", import.meta.url).pathname, () => ({
   Tooltip: vi.fn(function (this: unknown) {
     return {
@@ -84,6 +86,7 @@ vi.mock(new URL("../../src/tooltip.js", import.meta.url).pathname, () => ({
       show: vi.fn(),
       scheduleHide: vi.fn(),
       contains: vi.fn(),
+      setLocale: mockTooltipSetLocale,
       destroy: vi.fn(),
     };
   }),
@@ -137,6 +140,7 @@ function makeFeedbackResponse(overrides: Partial<FeedbackResponse> = {}): Feedba
     annotations: [],
     urlPattern: null,
     screenshotUrl: null,
+    comments: [],
     screenshotRegion: null,
     diagnostics: null,
     ...overrides,
@@ -185,6 +189,9 @@ describe("launcher — annotation:complete integration", () => {
     vi.clearAllMocks();
     mockGetIdentity.mockReturnValue({ name: "Test User", email: "test@example.com" });
     mockMarkersFocusFeedback.mockReturnValue(false);
+    // The locale switcher persists the visitor's pick — it would otherwise
+    // leak into the next case's initial locale.
+    localStorage.removeItem("siteping_locale");
     // Reset any test-set URL — jsdom keeps it across cases otherwise.
     if (window.location.search) {
       window.history.replaceState(null, "", window.location.pathname);
@@ -720,20 +727,68 @@ describe("launcher — annotation:complete integration", () => {
       instance.destroy();
     });
 
-    it("returns early on Submit when email is empty", async () => {
+    it("submits with an empty email — only the name is required", async () => {
       mockGetIdentity.mockReturnValue(null);
+      mockSendFeedback.mockResolvedValue(makeFeedbackResponse({ id: "fb-no-email" }));
       const instance = launch(defaultConfig());
       capturedBus!.emit("annotation:complete", makeAnnotationCompleteData());
 
-      const { nameInput, emailInput, submitBtn, modal } = await getIdentityModal();
+      const { nameInput, emailInput, submitBtn } = await getIdentityModal();
       nameInput.value = "Alice";
       emailInput.value = "";
 
       submitBtn.click();
 
+      await vi.waitFor(
+        () => {
+          expect(mockSendFeedback).toHaveBeenCalledOnce();
+        },
+        { timeout: 1500 },
+      );
+
+      const payload = mockSendFeedback.mock.calls[0]![0];
+      expect(payload.authorName).toBe("Alice");
+      // "" is the wire representation of "no address given" — the HTTP schema
+      // and every store accept it.
+      expect(payload.authorEmail).toBe("");
+
+      instance.destroy();
+    });
+
+    it("marks the name border red on Submit when the name is empty", async () => {
+      mockGetIdentity.mockReturnValue(null);
+      const instance = launch(defaultConfig());
+      capturedBus!.emit("annotation:complete", makeAnnotationCompleteData());
+
+      const { nameInput, submitBtn, modal } = await getIdentityModal();
+      nameInput.value = "   ";
+
+      submitBtn.click();
+
       await new Promise((r) => setTimeout(r, 50));
+      expect(nameInput.style.borderColor).not.toBe("");
       expect(mockSendFeedback).not.toHaveBeenCalled();
       expect(modal.isConnected).toBe(true);
+
+      instance.destroy();
+    });
+
+    it("clears the invalid-email outline once the field is edited", async () => {
+      mockGetIdentity.mockReturnValue(null);
+      const instance = launch(defaultConfig());
+      capturedBus!.emit("annotation:complete", makeAnnotationCompleteData());
+
+      const { nameInput, emailInput, submitBtn } = await getIdentityModal();
+      nameInput.value = "Alice";
+      emailInput.value = "not-an-email";
+      submitBtn.click();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(emailInput.style.borderColor).not.toBe("");
+
+      // Clearing the field is now a valid state — the warning must go with it.
+      emailInput.value = "";
+      emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(emailInput.style.borderColor).toBe("");
 
       instance.destroy();
     });
@@ -1615,6 +1670,75 @@ describe("launcher — annotation:complete integration", () => {
   // -------------------------------------------------------------------------
   // auth config wiring — apiKey/headers flow into ApiClient + flushRetryQueue
   // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Runtime language switching — `instance.setLocale()` and the panel picker
+  // share one code path (`applyLocale`), so these cases cover both.
+  // -------------------------------------------------------------------------
+
+  describe("setLocale", () => {
+    it("loads the dictionary and re-labels the FAB", async () => {
+      const instance = launch(defaultConfig({ locale: "en" }));
+      const shadow = document.querySelector("siteping-widget")!.shadowRoot!;
+      const fabBtn = shadow.querySelector<HTMLButtonElement>(".sp-fab")!;
+      expect(fabBtn.getAttribute("aria-label")).toBe("Siteping — Feedback menu");
+
+      await instance.setLocale("ja");
+
+      expect(instance.getLocale()).toBe("ja");
+      expect(fabBtn.getAttribute("aria-label")).toBe("Siteping — フィードバックメニュー");
+      expect(mockAnnotatorRefreshLabels).toHaveBeenCalled();
+      expect(mockTooltipSetLocale).toHaveBeenCalledWith("ja");
+
+      instance.destroy();
+    });
+
+    it("persists the pick so the next mount starts in that language", async () => {
+      const first = launch(defaultConfig({ locale: "en", localeSwitcher: ["en", "ja"] }));
+      await first.setLocale("ja");
+      first.destroy();
+
+      const second = launch(defaultConfig({ locale: "en", localeSwitcher: ["en", "ja"] }));
+      expect(second.getLocale()).toBe("ja");
+      second.destroy();
+    });
+
+    it("ignores a stored locale the picker no longer offers", () => {
+      localStorage.setItem("siteping_locale", "ja");
+      // No switcher configured → the stored pick is not honoured, because the
+      // visitor has no way to change it back.
+      const instance = launch(defaultConfig({ locale: "fr" }));
+      expect(instance.getLocale()).toBe("fr");
+      instance.destroy();
+    });
+
+    it("is a no-op when the locale is already active", async () => {
+      const instance = launch(defaultConfig({ locale: "en" }));
+      await instance.setLocale("en");
+      expect(mockTooltipSetLocale).not.toHaveBeenCalled();
+      instance.destroy();
+    });
+
+    it("keeps the widget usable when the dictionary fails to load", async () => {
+      const loadLocaleSpy = vi.spyOn(i18n, "loadLocale").mockRejectedValue(new Error("chunk 404"));
+      const instance = launch(defaultConfig({ locale: "en" }));
+
+      await expect(instance.setLocale("ja")).resolves.toBeUndefined();
+      // The locale is active (markers/dates follow it) — only the strings stay
+      // on the English fallback, exactly like a failed initial load.
+      expect(instance.getLocale()).toBe("ja");
+
+      loadLocaleSpy.mockRestore();
+      instance.destroy();
+    });
+
+    it("does nothing after destroy()", async () => {
+      const instance = launch(defaultConfig({ locale: "en" }));
+      instance.destroy();
+      await instance.setLocale("ja");
+      expect(mockTooltipSetLocale).not.toHaveBeenCalled();
+    });
+  });
 
   describe("auth config wiring", () => {
     it("passes apiKey and headers from config to ApiClient and flushRetryQueue", () => {

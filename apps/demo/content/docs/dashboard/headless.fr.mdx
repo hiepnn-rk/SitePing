@@ -29,6 +29,7 @@ Les options forment une union sur les trois modes de source : fournissez **exact
 | `pageSize` | `number` | `50` | Borné entre 1 et 100 |
 | `onStatusChange` | `(feedback, previousStatus) => void` | — | Après confirmation du serveur |
 | `onDelete` | `(feedback) => void` | — | Après confirmation du serveur |
+| `author` | `{ name, email? }` | — | Qui répond depuis cette inbox — voir [Commentaires](/fr/docs/comments). Sans lui, `canComment` reste `false` |
 | `onError` | `(error) => void` | — | Chaque chargement ou mutation en échec |
 
 Chaque mode est exporté séparément — `InboxEndpointOptions`, `InboxStoreOptions`, `InboxCustomSourceOptions`, le socle commun `InboxSharedOptions` et l'union `UseSitepingInboxOptions` — pour qu'un composant d'enrobage n'accepte que le mode qu'il gère. En JavaScript pur, le comportement d'avant demeure : aucune source du tout lève toujours au rendu.
@@ -42,6 +43,8 @@ Chaque mode est exporté séparément — `InboxEndpointOptions`, `InboxStoreOpt
 **Focus et tiroir** — `focusedId`, `focus(id)`, `focusNext()`, `focusPrev()`, `openedId`, `opened` (le feedback ouvert — il reste disponible même si un filtre retire sa ligne), `openFeedback(id)`, `closeFeedback()`.
 
 **Mutations** — `changeStatus(id, status)`, `deleteFeedback(id)`, `pendingUndo`, `undo()`.
+
+**Commentaires** — `canComment`, `addComment(id, body)`, `deleteComment(id, commentId)`. Voir [Commentaires](/fr/docs/comments) ; contrairement aux mutations ci-dessus, ils ne sont pas optimistes — ils se résolvent quand le store a la réponse.
 
 ## `view` — l'algèbre des drapeaux en moins
 
@@ -80,6 +83,8 @@ L'interface se met à jour immédiatement ; si le serveur refuse, le hook annule
 ```
 
 Seul le dernier changement de statut est annulable (`pendingUndo` + `undo()`) ; la suppression est définitive, alors protégez-la derrière votre propre confirmation.
+
+Les écritures de commentaires font exception : elles attendent le serveur et committent la réponse persistée, donc `addComment` n'affiche jamais un message que le store n'a pas. Elles relancent l'erreur de la même façon.
 
 ## Pagination
 

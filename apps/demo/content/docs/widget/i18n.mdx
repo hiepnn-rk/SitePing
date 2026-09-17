@@ -1,9 +1,9 @@
 ---
 title: Languages
-description: Seven built-in locales, lazy-loaded, with sensible fallbacks.
+description: Eight built-in locales, lazy-loaded, with sensible fallbacks.
 ---
 
-The widget ships with **7 built-in locales**: English (`en`), French (`fr`), German (`de`), Spanish (`es`), Italian (`it`), Brazilian Portuguese (`pt`), and Russian (`ru`).
+The widget ships with **8 built-in locales**: English (`en`), French (`fr`), German (`de`), Spanish (`es`), Italian (`it`), Brazilian Portuguese (`pt`), Russian (`ru`), and Japanese (`ja`).
 
 ```ts
 initSiteping({
@@ -19,6 +19,32 @@ initSiteping({
 - Full BCP-47 tags are welcome — `"fr-CA"` resolves to `fr`, `"pt-BR"` to `pt`.
 - An unknown locale logs a `console.warn` and falls back to English. Nothing breaks.
 - While a locale chunk is loading, labels render in English and re-localize the moment it lands; markers wait for the translations so screen-reader labels are never half-translated.
+
+## Letting visitors pick their language
+
+`locale` sets the language *you* choose. `localeSwitcher` hands the choice to
+the visitor: it adds a language picker to the feedback panel header.
+
+```ts
+initSiteping({
+  endpoint: "/api/siteping",
+  projectName: "my-project",
+  locale: "en",              // what a first-time visitor sees
+  localeSwitcher: ["en", "ja"], // what they can switch to
+});
+```
+
+- `true` lists every built-in locale; an array lists exactly those, in the order you give them. Fewer than two usable entries renders no picker at all.
+- Options are labelled in their own language (`English`, `日本語`) — someone who does not read the current UI language still recognises theirs.
+- The pick is persisted per browser under `siteping_locale` and restored on the next load, **overriding `locale`** — so a visitor chooses once. A stored locale the picker no longer offers is ignored.
+- Switching re-labels everything on screen: the floating button, the annotator, the panel and the markers. The dictionary is fetched first, so nothing renders half-translated.
+
+Hosts that want their own control instead can drive the same path from code:
+
+```ts
+await siteping.setLocale("ja"); // loads, re-labels, persists
+siteping.getLocale();           // "ja"
+```
 
 ## Custom locales
 
@@ -37,6 +63,6 @@ initSiteping({ endpoint: "/api/siteping", projectName: "my-project", locale: "nl
 
 ## The dashboard follows the same set
 
-`@siteping/dashboard` ships the same seven locales with the same resolution rules, and exports its own `registerLocale` with the same partial-dictionary behavior — see [the dashboard docs](/docs/dashboard#languages).
+`@siteping/dashboard` ships the same eight locales with the same resolution rules, and exports its own `registerLocale` with the same partial-dictionary behavior — see [the dashboard docs](/docs/dashboard#languages).
 
 Want your language built in? Locale contributions are the friendliest first PR to this project — see [CONTRIBUTING](https://github.com/NeosiaNexus/SitePing/blob/main/CONTRIBUTING.md) ("Adding a Locale").

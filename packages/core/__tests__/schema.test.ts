@@ -24,11 +24,12 @@ const VALID_PRISMA_TYPES = new Set([
 // ---------------------------------------------------------------------------
 
 describe("SITEPING_MODELS structure", () => {
-  it("contains exactly 2 models: SitepingFeedback and SitepingAnnotation", () => {
+  it("contains exactly 3 models: SitepingFeedback, SitepingAnnotation and SitepingComment", () => {
     const modelNames = Object.keys(SITEPING_MODELS);
-    expect(modelNames).toHaveLength(2);
+    expect(modelNames).toHaveLength(3);
     expect(modelNames).toContain("SitepingFeedback");
     expect(modelNames).toContain("SitepingAnnotation");
+    expect(modelNames).toContain("SitepingComment");
   });
 });
 
@@ -228,6 +229,75 @@ describe("SitepingAnnotation model", () => {
     expect(model.indexes).toBeDefined();
     const feedbackIdIndex = model.indexes!.find((idx) => idx.fields.length === 1 && idx.fields[0] === "feedbackId");
     expect(feedbackIdIndex).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SitepingComment model
+// ---------------------------------------------------------------------------
+
+describe("SitepingComment model", () => {
+  const model = SITEPING_MODELS.SitepingComment;
+  const fields = model.fields;
+
+  it("has all expected fields", () => {
+    for (const field of [
+      "id",
+      "feedbackId",
+      "feedback",
+      "body",
+      "authorName",
+      "authorEmail",
+      "authorRole",
+      "createdAt",
+    ]) {
+      expect(fields).toHaveProperty(field);
+    }
+  });
+
+  it("id is a String @id with cuid() default", () => {
+    expect(fields.id.type).toBe("String");
+    expect(fields.id.isId).toBe(true);
+    expect(fields.id.default).toBe("cuid()");
+  });
+
+  it("feedback is a many-to-1 relation to SitepingFeedback with Cascade delete", () => {
+    const rel = fields.feedback.relation;
+    expect(rel).toBeDefined();
+    expect(rel!.kind).toBe("many-to-1");
+    expect(rel!.model).toBe("SitepingFeedback");
+    expect(rel!.fields).toEqual(["feedbackId"]);
+    expect(rel!.references).toEqual(["id"]);
+    // A deleted feedback takes its whole thread with it.
+    expect(rel!.onDelete).toBe("Cascade");
+  });
+
+  it("body is stored as Text (a reply can be as long as a feedback message)", () => {
+    expect(fields.body.type).toBe("String");
+    expect(fields.body.nativeType).toBe("Text");
+  });
+
+  it("authorRole defaults to client", () => {
+    expect(fields.authorRole.default).toBe('"client"');
+  });
+
+  it("has @@index([feedbackId, createdAt]) — threads are read oldest-first per feedback", () => {
+    expect(model.indexes).toBeDefined();
+    const index = model.indexes!.find((idx) => idx.fields.length === 2);
+    expect(index?.fields).toEqual(["feedbackId", "createdAt"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Feedback ↔ comment relation
+// ---------------------------------------------------------------------------
+
+describe("SitepingFeedback.comments relation", () => {
+  it("is a 1-to-many relation to SitepingComment", () => {
+    const rel = SITEPING_MODELS.SitepingFeedback.fields.comments.relation;
+    expect(rel).toBeDefined();
+    expect(rel!.kind).toBe("1-to-many");
+    expect(rel!.model).toBe("SitepingComment");
   });
 });
 

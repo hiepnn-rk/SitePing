@@ -23,7 +23,7 @@ Runs against any `SitepingStore` in-process — the same stores the widget's cli
 
 ## Custom source
 
-For tRPC, GraphQL, or server actions, implement the three-method `InboxSource` contract and pass it as `source`:
+For tRPC, GraphQL, or server actions, implement the `InboxSource` contract — three required methods, plus two optional ones for [comments](/docs/comments) — and pass it as `source`:
 
 ```ts
 import type { InboxSource } from "@siteping/dashboard";
@@ -41,6 +41,14 @@ const source: InboxSource = {
   async remove(id, projectName) {
     await trpc.siteping.remove.mutate({ id, projectName });
   },
+  // Optional — omit both and the inbox reports `canComment: false` and
+  // renders discussion threads read-only.
+  async addComment(feedbackId, projectName, input) {
+    return reviveCommentDates(await trpc.siteping.addComment.mutate({ feedbackId, projectName, ...input }));
+  },
+  async removeComment(feedbackId, commentId, projectName) {
+    await trpc.siteping.removeComment.mutate({ feedbackId, commentId, projectName });
+  },
 };
 ```
 
@@ -53,6 +61,7 @@ The two building blocks behind the built-in modes are exported too — `createEn
 | What you're typing | Exports |
 |---|---|
 | Feedback data | `FeedbackRecord`, `FeedbackStatus`, `FeedbackType`, `SitepingStore`, plus the `FEEDBACK_STATUSES` / `FEEDBACK_TYPES` constants and `isClosedStatus()` |
+| Comments | `CommentRecord`, `CommentCreateInput`, `CommentAuthorRole` |
 | Hook options | `UseSitepingInboxOptions` and its three members — `InboxEndpointOptions`, `InboxStoreOptions`, `InboxCustomSourceOptions` — plus the shared `InboxSharedOptions` |
 | Hook result | `InboxState`, `InboxStatusFilter`, `InboxTypeFilter` |
 | Sources | `InboxSource`, `EndpointSourceOptions` (the argument of `createEndpointSource`) |

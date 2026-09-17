@@ -1,8 +1,21 @@
 import type { FeedbackQuery, FeedbackStatus, FeedbackUpdateInput, SitepingStore } from "@siteping/core";
-import { SitepingAuthError, SitepingNetworkError, SitepingValidationError } from "@siteping/core";
+import {
+  SitepingAuthError,
+  SitepingNetworkError,
+  SitepingUnsupportedError,
+  SitepingValidationError,
+} from "@siteping/core";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { createEndpointSource, createStoreSource } from "../../src/source.js";
-import { errorFetch, jsonFetch, makeAnnotationResponse, makeRecord, makeResponse } from "../helpers.js";
+import {
+  errorFetch,
+  jsonFetch,
+  makeAnnotationResponse,
+  makeComment,
+  makeCommentResponse,
+  makeRecord,
+  makeResponse,
+} from "../helpers.js";
 
 const ENDPOINT = "https://app.example/api/siteping";
 
@@ -300,5 +313,101 @@ describe("createStoreSource", () => {
     const source = createStoreSource(store);
     await source.remove("fb-1", "demo");
     expect(store.deleteFeedback).toHaveBeenCalledWith("fb-1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Comments
+// ---------------------------------------------------------------------------
+
+describe("createEndpointSource — comments", () => {
+  const INPUT = {
+    body: "Fixed in 1.4.2",
+    authorName: "Dana Dev",
+    authorEmail: "dana@team.example",
+    authorRole: "team" as const,
+  };
+
+  it("POSTs the comment payload to the same endpoint and revives createdAt", async () => {
+    const fetchFn = jsonFetch(makeCommentResponse({ id: "cm-9", body: "Fixed in 1.4.2", authorRole: "team" }));
+    const source = createEndpointSource({ endpoint: ENDPOINT, fetchFn });
+
+    const comment = await source.addComment?.("fb-1", "demo", INPUT);
+
+    const { url, init } = lastCall(fetchFn);
+    expect(url).toBe(ENDPOINT);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ feedbackId: "fb-1", projectName: "demo", ...INPUT });
+    expect(comment?.createdAt).toBeInstanceOf(Date);
+    expect(comment?.authorRole).toBe("team");
+  });
+
+  it("DELETEs with both ids so the write stays scoped to the thread", async () => {
+    const fetchFn = jsonFetch({ deleted: true });
+    const source = createEndpointSource({ endpoint: ENDPOINT, fetchFn });
+
+    await source.removeComment?.("fb-1", "cm-9", "demo");
+
+    const { init } = lastCall(fetchFn);
+    expect(init.method).toBe("DELETE");
+    expect(JSON.parse(init.body as string)).toEqual({ feedbackId: "fb-1", commentId: "cm-9", projectName: "demo" });
+  });
+
+  it("maps a 501 to SitepingUnsupportedError so the inbox can hide its composer", async () => {
+    const source = createEndpointSource({ endpoint: ENDPOINT, fetchFn: errorFetch(501, "no comments here") });
+    await expect(source.addComment?.("fb-1", "demo", INPUT)).rejects.toBeInstanceOf(SitepingUnsupportedError);
+  });
+
+  it("revives the thread on a listed feedback", async () => {
+    const fetchFn = jsonFetch({
+      feedbacks: [makeResponse({ comments: [makeCommentResponse()] })],
+      total: 1,
+    });
+    const source = createEndpointSource({ endpoint: ENDPOINT, fetchFn });
+
+    const page = await source.list({ projectName: "demo" });
+
+    expect(page.feedbacks[0]?.comments[0]?.createdAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("createStoreSource — comments", () => {
+  it("omits both comment methods when the store has none", () => {
+    const source = createStoreSource({
+      getFeedbacks: vi.fn(),
+      updateFeedback: vi.fn(),
+      deleteFeedback: vi.fn(),
+      createFeedback: vi.fn(),
+      findByClientId: vi.fn(),
+      deleteAllFeedbacks: vi.fn(),
+    } as unknown as SitepingStore);
+
+    // The absence is the capability signal the inbox reads as `canComment: false`.
+    expect(source.addComment).toBeUndefined();
+    expect(source.removeComment).toBeUndefined();
+  });
+
+  it("delegates to the store when it supports comments", async () => {
+    const addComment = vi.fn(async () => makeComment({ id: "cm-1" }));
+    const deleteComment = vi.fn(async () => undefined);
+    const source = createStoreSource({
+      getFeedbacks: vi.fn(),
+      updateFeedback: vi.fn(),
+      deleteFeedback: vi.fn(),
+      createFeedback: vi.fn(),
+      findByClientId: vi.fn(),
+      deleteAllFeedbacks: vi.fn(),
+      addComment,
+      deleteComment,
+    } as unknown as SitepingStore);
+
+    const input = { body: "hi", authorName: "Dana", authorEmail: "", authorRole: "team" as const };
+    await source.addComment?.("fb-1", "demo", input);
+    await source.removeComment?.("fb-1", "cm-1", "demo");
+
+    expect(addComment).toHaveBeenCalledWith("fb-1", input);
+    // The store contract takes (feedbackId, commentId) — the project is the
+    // HTTP layer's ownership check, not the store's.
+    expect(deleteComment).toHaveBeenCalledWith("fb-1", "cm-1");
   });
 });

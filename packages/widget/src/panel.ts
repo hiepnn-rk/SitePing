@@ -5,6 +5,7 @@ import {
   type FeedbackStatus,
   type FeedbackType,
   isClosedStatus,
+  LOCALE_LABELS,
   type PageScope,
 } from "@siteping/core";
 import type { GetFeedbacksOptions, WidgetClient } from "./api-client.js";
@@ -21,6 +22,7 @@ import {
   ICON_CHEVRON_DOWN,
   ICON_CLOSE,
   ICON_DOT_OPEN,
+  ICON_GLOBE,
   ICON_LAYERS,
   ICON_OTHER,
   ICON_QUESTION,
@@ -30,11 +32,25 @@ import {
 } from "./icons.js";
 import type { MarkerManager } from "./markers.js";
 import { BulkActions } from "./panel-bulk.js";
-import { DetailView } from "./panel-detail.js";
+import { type DetailCallbacks, DetailView } from "./panel-detail.js";
 import { createPageGroupHeader, groupFeedbacksByPage, PanelSortControls, sortFeedbacks } from "./panel-sort.js";
 import { PanelStats } from "./panel-stats.js";
 import { focusCardByIndex, getFocusedCardIndex, KeyboardShortcuts } from "./shortcuts.js";
 import { getStatusBgColor, getStatusColor, getTypeBgColor, getTypeColor, type ThemeColors } from "./styles/theme.js";
+
+/**
+ * Language picker wiring, supplied by the launcher when the host enabled
+ * `localeSwitcher`. Omitted entirely when the feature is off — the header
+ * then renders exactly as before.
+ */
+export interface PanelLocaleSwitcher {
+  /** Locales to offer, in display order. Always two or more. */
+  locales: readonly string[];
+  /** The locale currently rendered — the picker's initial selection. */
+  current: string;
+  /** Called with the picked locale. The launcher owns the actual switch. */
+  onChange: (locale: string) => void;
+}
 
 /** Non-terminal statuses — complement of `CLOSED_FEEDBACK_STATUSES`; backs the panel's "Open" tab bucket. */
 const OPEN_FEEDBACK_STATUSES: readonly FeedbackStatus[] = FEEDBACK_STATUSES.filter((s) => !isClosedStatus(s));
@@ -99,7 +115,17 @@ export class Panel {
     private readonly markers: MarkerManager,
     private readonly t: TFunction,
     private readonly locale: string,
-    pageScopeOptions?: { getScope: () => PageScope; scopeAnnotationsByUrl: boolean },
+    pageScopeOptions?: {
+      getScope: () => PageScope;
+      scopeAnnotationsByUrl: boolean;
+      localeSwitcher?: PanelLocaleSwitcher;
+      /**
+       * Discussion wiring handed straight to the detail view — omitted when
+       * the host set `comments: false`. The launcher owns it because posting
+       * needs the visitor's identity, which lives there.
+       */
+      comments?: DetailCallbacks["comments"];
+    },
   ) {
     this.shadowRoot = shadowRoot;
     this.getScope = pageScopeOptions?.getScope ?? (() => ({ url: window.location.pathname, urlPattern: null }));
@@ -134,6 +160,8 @@ export class Panel {
     this.exportBtn = new ExportButton(colors, () => this.feedbacks, this.t);
 
     const headerRight = el("div", { class: "sp-panel-header-right" });
+    const localeSwitcher = pageScopeOptions?.localeSwitcher;
+    if (localeSwitcher) headerRight.appendChild(this.buildLocaleSwitcher(localeSwitcher));
     headerRight.appendChild(this.exportBtn.element);
     headerRight.appendChild(this.deleteAllBtn);
     headerRight.appendChild(this.closeBtn);
@@ -226,6 +254,7 @@ export class Panel {
             throw error;
           }
         },
+        ...(pageScopeOptions?.comments ? { comments: pageScopeOptions.comments } : {}),
         onGoToAnnotation: (fb) => {
           if (fb.annotations.length > 0) {
             const ann = fb.annotations[0];
@@ -435,11 +464,26 @@ export class Panel {
   private onListMouseout: (e: Event) => void;
 
   async open(): Promise<void> {
+    await this.doOpen(true);
+  }
+
+  /**
+   * Re-open after the launcher swapped this instance in (locale change).
+   *
+   * Same as {@link open} minus the `open` event: from the user's side the
+   * panel never closed, so a second `panel:open` with no `panel:close`
+   * between would be a lie to anyone listening.
+   */
+  async reopen(): Promise<void> {
+    await this.doOpen(false);
+  }
+
+  private async doOpen(emitOpen: boolean): Promise<void> {
     if (this.isOpen) return;
     this.isOpen = true;
     this.root.classList.add("sp-panel--open");
     this.root.setAttribute("aria-hidden", "false");
-    this.bus.emit("open");
+    if (emitOpen) this.bus.emit("open");
     this.shortcuts.enable(this.shadowRoot);
     await this.loadFeedbacks();
     // Move focus into the panel (search input or close button)
@@ -953,6 +997,41 @@ export class Panel {
     } finally {
       this.pendingMutations.delete(feedback.id);
     }
+  }
+
+  /**
+   * Language picker for the panel header.
+   *
+   * A native `<select>` on purpose: inside a closed Shadow DOM it is the one
+   * control that already gets the platform's keyboard handling, screen-reader
+   * announcement and mobile picker for free — the custom dropdown built for
+   * the type filter would have to reimplement all three for a control that
+   * changes the language those implementations are announced in.
+   */
+  private buildLocaleSwitcher(switcher: PanelLocaleSwitcher): HTMLElement {
+    const wrap = el("div", { class: "sp-locale" });
+    const icon = parseSvg(ICON_GLOBE);
+    icon.setAttribute("class", "sp-locale-icon");
+
+    const select = document.createElement("select");
+    select.className = "sp-locale-select";
+    select.setAttribute("aria-label", this.t("panel.language"));
+    for (const code of switcher.locales) {
+      const option = document.createElement("option");
+      option.value = code;
+      // Custom locales (registered via `registerLocale`) have no built-in
+      // label — show the raw code rather than an empty option.
+      setText(option, LOCALE_LABELS[code as keyof typeof LOCALE_LABELS] ?? code);
+      option.selected = code === switcher.current;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      switcher.onChange(select.value);
+    });
+
+    wrap.appendChild(icon);
+    wrap.appendChild(select);
+    return wrap;
   }
 
   private buildTypeDropdown(): HTMLElement {

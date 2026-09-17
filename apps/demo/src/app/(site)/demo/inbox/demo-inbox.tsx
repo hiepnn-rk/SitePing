@@ -92,6 +92,9 @@ export function DemoInbox() {
     accentColor: "#173CFF",
     locale,
     className: "h-full",
+    // Who the demo replies as — required for the drawer's discussion thread
+    // to offer a composer instead of rendering read-only.
+    author: { name: "SitePing demo" },
   } as const;
 
   return (

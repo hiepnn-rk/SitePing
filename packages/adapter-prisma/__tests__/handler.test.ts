@@ -81,6 +81,36 @@ describe("createSitepingHandler", () => {
       expect(res.status).toBe(400);
     });
 
+    it("accepts an empty email — the widget only requires a name", async () => {
+      const req = new Request("http://localhost/api/siteping", {
+        method: "POST",
+        body: JSON.stringify({ ...validPayloadNoAnnotations, authorEmail: "" }),
+      });
+      const res = await handler.POST(req);
+      expect(res.status).toBe(201);
+      expect(prisma.sitepingFeedback.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ authorEmail: "" }) }),
+      );
+    });
+
+    it("still returns 400 for a whitespace-only email (not the same as omitting it)", async () => {
+      const req = new Request("http://localhost/api/siteping", {
+        method: "POST",
+        body: JSON.stringify({ ...validPayloadNoAnnotations, authorEmail: "   " }),
+      });
+      const res = await handler.POST(req);
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when authorName is empty — the name stays required", async () => {
+      const req = new Request("http://localhost/api/siteping", {
+        method: "POST",
+        body: JSON.stringify({ ...validPayloadNoAnnotations, authorName: "" }),
+      });
+      const res = await handler.POST(req);
+      expect(res.status).toBe(400);
+    });
+
     it("handles duplicate clientId gracefully", async () => {
       prisma.sitepingFeedback.create.mockRejectedValue({ code: "P2002" });
       prisma.sitepingFeedback.findUnique.mockResolvedValue({ id: "fb-1", ...validPayloadNoAnnotations });

@@ -18,6 +18,8 @@ import { applyFeedbackFilters } from "./filters.js";
 import type {
   AnnotationCreateInput,
   AnnotationRecord,
+  CommentCreateInput,
+  CommentRecord,
   FeedbackCreateInput,
   FeedbackPage,
   FeedbackQuery,
@@ -66,6 +68,26 @@ export function buildAnnotationRecord(
 }
 
 /**
+ * Build a persisted `CommentRecord` from its create input — stamps identity,
+ * thread membership and the creation timestamp. Shared by every adapter so a
+ * comment looks identical whichever store persisted it.
+ */
+export function buildCommentRecord(
+  input: CommentCreateInput,
+  ctx: { id: string; feedbackId: string; now?: Date },
+): CommentRecord {
+  return {
+    id: ctx.id,
+    feedbackId: ctx.feedbackId,
+    body: input.body,
+    authorName: input.authorName,
+    authorEmail: input.authorEmail,
+    authorRole: input.authorRole,
+    createdAt: ctx.now ?? new Date(),
+  };
+}
+
+/**
  * Build a persisted `FeedbackRecord` (with its annotations) from a create
  * input — normalizes every optional field to `null` and stamps ids and
  * timestamps. Adapters without external screenshot storage keep the data
@@ -96,6 +118,9 @@ export function buildFeedbackRecord(
     annotations: input.annotations.map((ann) =>
       buildAnnotationRecord(ann, { id: ctx.annotationId(), feedbackId: ctx.id, now }),
     ),
+    // A freshly created feedback has no thread yet — comments only arrive
+    // through `addComment`.
+    comments: [],
     screenshotUrl: input.screenshotDataUrl ?? null,
     screenshotRegion: input.screenshotRegion ?? null,
     diagnostics: input.diagnostics ?? null,
@@ -134,7 +159,8 @@ export interface CollectionStoreBackend {
  * A `SitepingStore` with the optional `verifyProjectOwnership` guaranteed —
  * what `createCollectionStore` returns.
  */
-export type CollectionStore = SitepingStore & Required<Pick<SitepingStore, "verifyProjectOwnership">>;
+export type CollectionStore = SitepingStore &
+  Required<Pick<SitepingStore, "verifyProjectOwnership" | "addComment" | "deleteComment">>;
 
 /**
  * Build a fully conformant `SitepingStore` on top of a snapshot backend.
@@ -235,6 +261,33 @@ export function createCollectionStore(backend: CollectionStoreBackend): Collecti
     async verifyProjectOwnership(id: string, projectName: string): Promise<boolean> {
       const fb = (await backend.load()).find((f) => f.id === id);
       return fb !== undefined && fb.projectName === projectName;
+    },
+
+    async addComment(feedbackId: string, data: CommentCreateInput): Promise<CommentRecord> {
+      const feedbacks = await backend.load();
+      const current = feedbacks.find((f) => f.id === feedbackId);
+      if (!current) throw new StoreNotFoundError();
+
+      const comment = buildCommentRecord(data, { id: backend.generateId(), feedbackId });
+      // Oldest-first, like every reader expects — and `comments` may be
+      // missing entirely on a snapshot written before comments existed.
+      const updated: FeedbackRecord = { ...current, comments: [...(current.comments ?? []), comment] };
+      await backend.persist(feedbacks.map((f) => (f === current ? updated : f)));
+      return comment;
+    },
+
+    async deleteComment(feedbackId: string, commentId: string): Promise<void> {
+      const feedbacks = await backend.load();
+      const current = feedbacks.find((f) => f.id === feedbackId);
+      if (!current) throw new StoreNotFoundError();
+
+      const comments = current.comments ?? [];
+      // A comment id that belongs to another thread is "not found" here, not
+      // a cross-thread delete: the caller was only authorized for this one.
+      if (!comments.some((c) => c.id === commentId)) throw new StoreNotFoundError();
+
+      const updated: FeedbackRecord = { ...current, comments: comments.filter((c) => c.id !== commentId) };
+      await backend.persist(feedbacks.map((f) => (f === current ? updated : f)));
     },
   };
 }

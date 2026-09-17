@@ -9,7 +9,13 @@
  * animations, accent gradients, premium micro-interactions.
  */
 
-import { type FeedbackResponse, type FeedbackStatus, isClosedStatus } from "@siteping/core";
+import {
+  type CommentResponse,
+  type FeedbackResponse,
+  type FeedbackStatus,
+  isClosedStatus,
+  isUnsupported,
+} from "@siteping/core";
 import { el, parseSvg, setText } from "./dom-utils.js";
 import { getStatusLabel, type TFunction, tWithParams } from "./i18n/index.js";
 import { getTypeBgColor, getTypeColor, type ThemeColors } from "./styles/theme.js";
@@ -41,6 +47,8 @@ const ICON_CODE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON_CROSSHAIR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>`;
 
 const ICON_CHEVRON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>`;
+const ICON_CHAT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
+const ICON_SEND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
 const ICON_TERMINAL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
 
 // ---------------------------------------------------------------------------
@@ -379,6 +387,155 @@ export const DETAIL_CSS = /* css */ `
     background: var(--sp-glass-bg-heavy);
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  /* ---- Discussion Section ---- */
+
+  .sp-detail-thread {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .sp-comment {
+    padding: 12px 14px;
+    border-radius: var(--sp-radius);
+    background: var(--sp-glass-bg-heavy);
+    border-left: 3px solid var(--sp-border);
+  }
+
+  /* The team's replies are the ones a client is waiting for — accent them. */
+  .sp-comment[data-role="team"] {
+    border-left-color: var(--sp-accent);
+    background: var(--sp-accent-light);
+  }
+
+  .sp-comment-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .sp-comment-author {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--sp-text);
+  }
+
+  .sp-comment-role {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: var(--sp-radius-full);
+    background: var(--sp-glass-bg);
+    color: var(--sp-text-tertiary);
+    border: 1px solid var(--sp-border);
+  }
+
+  .sp-comment[data-role="team"] .sp-comment-role {
+    color: var(--sp-accent);
+    border-color: var(--sp-accent);
+  }
+
+  .sp-comment-date {
+    font-size: 11px;
+    color: var(--sp-text-tertiary);
+    margin-left: auto;
+  }
+
+  .sp-comment-body {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--sp-text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .sp-thread-empty {
+    font-size: 12px;
+    color: var(--sp-text-tertiary);
+    margin-bottom: 14px;
+  }
+
+  .sp-comment-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sp-comment-input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 72px;
+    resize: vertical;
+    padding: 10px 12px;
+    border: 1.5px solid var(--sp-border);
+    border-radius: var(--sp-radius);
+    background: var(--sp-glass-bg-heavy);
+    color: var(--sp-text);
+    font-family: var(--sp-font);
+    font-size: 13px;
+    line-height: 1.5;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .sp-comment-input:focus {
+    outline: none;
+    border-color: var(--sp-accent);
+    box-shadow: 0 0 0 3px var(--sp-accent-light);
+  }
+
+  .sp-comment-form-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .sp-comment-hint {
+    font-size: 11px;
+    color: var(--sp-text-tertiary);
+  }
+
+  .sp-comment-send {
+    margin-left: auto;
+    height: 34px;
+    padding: 0 14px;
+    border: 1.5px solid var(--sp-accent);
+    border-radius: var(--sp-radius);
+    background: var(--sp-accent);
+    color: #fff;
+    font-family: var(--sp-font);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+  }
+
+  .sp-comment-send svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .sp-comment-send:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .sp-comment-send:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .sp-comment-error {
+    font-size: 12px;
+    color: #ef4444;
   }
 
   /* ---- Screenshot Section ---- */
@@ -882,6 +1039,18 @@ export interface DetailCallbacks {
   onResolve: (feedback: FeedbackResponse) => Promise<void>;
   onDelete: (feedback: FeedbackResponse) => Promise<void>;
   onGoToAnnotation: (feedback: FeedbackResponse) => void;
+  /**
+   * Discussion wiring. Omitted entirely when the host set
+   * `comments: false` — then no thread is rendered at all.
+   *
+   * `post` is itself optional: present it and the composer renders; leave it
+   * out (a store with no `addComment`) and the thread stays read-only.
+   */
+  comments?:
+    | {
+        post?: ((feedback: FeedbackResponse, body: string) => Promise<CommentResponse>) | undefined;
+      }
+    | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -899,6 +1068,13 @@ export class DetailView {
   private resolveBtn: HTMLButtonElement | null = null;
   private deleteBtn: HTMLButtonElement | null = null;
   private isProcessing = false;
+  /**
+   * Set once a post comes back `UNSUPPORTED` (HTTP 501, or a store with no
+   * `addComment` behind direct mode). Sticky for the session: the answer
+   * cannot change without a redeploy, and re-offering a composer that just
+   * refused the visitor's text is worse than showing the thread read-only.
+   */
+  private postingUnsupported = false;
 
   constructor(
     private readonly colors: ThemeColors,
@@ -1003,6 +1179,23 @@ export class DetailView {
       this.content.appendChild(screenshotSection);
     }
 
+    // Section 2c: Discussion — the thread, plus a composer when the backend
+    // can actually store replies. Hidden entirely when the host turned
+    // comments off, and when there is nothing to show and nothing to write.
+    const comments = this.callbacks.comments;
+    const canPost = comments?.post !== undefined && !this.postingUnsupported;
+    if (comments && (canPost || feedback.comments.length > 0)) {
+      const threadSection = this.buildSection(sectionIndex++);
+      const threadTitle = el("div", { class: "sp-detail-section-title" });
+      threadTitle.appendChild(parseSvg(ICON_CHAT));
+      const threadTitleText = el("span");
+      setText(threadTitleText, this.t("comments.title"));
+      threadTitle.appendChild(threadTitleText);
+      threadSection.appendChild(threadTitle);
+      this.buildComments(threadSection, feedback);
+      this.content.appendChild(threadSection);
+    }
+
     // Section 3: Metadata
     const metaSection = this.buildSection(sectionIndex++);
     const metaSectionTitle = el("div", { class: "sp-detail-section-title" });
@@ -1084,6 +1277,134 @@ export class DetailView {
     const section = el("div", { class: "sp-detail-section" });
     section.style.animationDelay = `${index * 40}ms`;
     return section;
+  }
+
+  /**
+   * Build the discussion thread and (when the backend supports it) the
+   * composer. The thread is re-rendered in place after a successful post, so
+   * a reply appears without a round-trip through the list.
+   */
+  private buildComments(container: HTMLElement, feedback: FeedbackResponse): void {
+    const thread = el("div", { class: "sp-detail-thread" });
+    container.appendChild(thread);
+
+    const renderThread = (): void => {
+      thread.replaceChildren();
+      if (feedback.comments.length === 0) {
+        const empty = el("div", { class: "sp-thread-empty" });
+        setText(empty, this.t("comments.empty"));
+        thread.appendChild(empty);
+        return;
+      }
+      for (const comment of feedback.comments) {
+        thread.appendChild(this.buildComment(comment));
+      }
+    };
+    renderThread();
+
+    const post = this.callbacks.comments?.post;
+    if (!post || this.postingUnsupported) return;
+
+    const form = el("div", { class: "sp-comment-form" });
+
+    const input = document.createElement("textarea");
+    input.className = "sp-comment-input";
+    input.maxLength = 5000;
+    input.placeholder = this.t("comments.placeholder");
+    input.setAttribute("aria-label", this.t("comments.placeholder"));
+
+    const foot = el("div", { class: "sp-comment-form-foot" });
+    const hint = el("span", { class: "sp-comment-hint" });
+    setText(hint, this.t("comments.hint"));
+
+    const send = document.createElement("button");
+    send.type = "button";
+    send.className = "sp-comment-send";
+    send.appendChild(parseSvg(ICON_SEND));
+    const sendLabel = el("span");
+    setText(sendLabel, this.t("comments.submit"));
+    send.appendChild(sendLabel);
+
+    const error = el("div", { class: "sp-comment-error" });
+    error.setAttribute("role", "alert");
+    error.hidden = true;
+
+    let sending = false;
+    const submit = async (): Promise<void> => {
+      const body = input.value.trim();
+      if (sending || body.length === 0) return;
+      sending = true;
+      send.disabled = true;
+      input.disabled = true;
+      error.hidden = true;
+      setText(sendLabel, this.t("comments.sending"));
+      try {
+        const comment = await post(feedback, body);
+        // Same object the panel keeps in its list cache, so the reply is
+        // there too when the visitor comes back to this feedback.
+        feedback.comments.push(comment);
+        input.value = "";
+        renderThread();
+      } catch (err) {
+        if (isUnsupported(err)) {
+          // The backend just told us it has no comments — keep the thread,
+          // drop the composer, and don't pretend the text can be sent.
+          this.postingUnsupported = true;
+          form.remove();
+          return;
+        }
+        setText(error, this.t("comments.error"));
+        error.hidden = false;
+      } finally {
+        sending = false;
+        send.disabled = false;
+        input.disabled = false;
+        setText(sendLabel, this.t("comments.submit"));
+      }
+    };
+
+    send.addEventListener("click", () => void submit());
+    // Same shortcut the annotation composer uses — Enter alone keeps
+    // inserting newlines, which a multi-sentence reply needs.
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        void submit();
+      }
+    });
+
+    foot.appendChild(hint);
+    foot.appendChild(send);
+    form.appendChild(input);
+    form.appendChild(foot);
+    form.appendChild(error);
+    container.appendChild(form);
+  }
+
+  /** One comment bubble — author, role chip, date, body. */
+  private buildComment(comment: CommentResponse): HTMLElement {
+    const item = el("div", { class: "sp-comment" });
+    item.dataset.role = comment.authorRole;
+
+    const head = el("div", { class: "sp-comment-head" });
+    const author = el("span", { class: "sp-comment-author" });
+    setText(author, comment.authorName);
+    head.appendChild(author);
+
+    const role = el("span", { class: "sp-comment-role" });
+    setText(role, this.t(comment.authorRole === "team" ? "comments.roleTeam" : "comments.roleClient"));
+    head.appendChild(role);
+
+    const date = el("span", { class: "sp-comment-date" });
+    setText(date, formatFullDate(comment.createdAt, this.locale));
+    head.appendChild(date);
+
+    const body = el("div", { class: "sp-comment-body" });
+    setText(body, comment.body);
+
+    item.appendChild(head);
+    item.appendChild(body);
+    return item;
   }
 
   /** Build Status pill + Resolve/Delete action buttons. */

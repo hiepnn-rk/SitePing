@@ -573,6 +573,117 @@ export function testSitepingStore(
     // verifyProjectOwnership (optional contract member)
     // ------------------------------------------------------------------
 
+    // ------------------------------------------------------------------
+    // Comments (optional contract members)
+    // ------------------------------------------------------------------
+
+    describe("comments", () => {
+      it("starts every feedback with an empty thread", async () => {
+        const fb = await store.createFeedback(createInput());
+        expect(fb.comments).toEqual([]);
+      });
+
+      it("appends comments oldest-first and exposes them on the feedback", async () => {
+        if (!store.addComment) return;
+
+        const fb = await store.createFeedback(createInput());
+        const first = await store.addComment(fb.id, {
+          body: "Still broken on staging",
+          authorName: "Alice",
+          authorEmail: "alice@test.com",
+          authorRole: "client",
+        });
+        const second = await store.addComment(fb.id, {
+          body: "Fixed in the next deploy",
+          authorName: "Bob",
+          authorEmail: "",
+          authorRole: "team",
+        });
+
+        expect(first.id).toBeDefined();
+        expect(first.feedbackId).toBe(fb.id);
+        expect(first.authorRole).toBe("client");
+        expect(first.createdAt).toBeInstanceOf(Date);
+        expect(second.id).not.toBe(first.id);
+        expect(second.authorEmail).toBe("");
+
+        const { feedbacks } = await store.getFeedbacks({ projectName: "test-project" });
+        expect(feedbacks[0]?.comments.map((c) => c.body)).toEqual([
+          "Still broken on staging",
+          "Fixed in the next deploy",
+        ]);
+      });
+
+      it("throws StoreNotFoundError when commenting on an unknown feedback", async () => {
+        if (!store.addComment) return;
+
+        await expect(
+          store.addComment("unknown-id", {
+            body: "Nobody home",
+            authorName: "Alice",
+            authorEmail: "",
+            authorRole: "client",
+          }),
+        ).rejects.toThrow(StoreNotFoundError);
+      });
+
+      it("deletes a single comment and leaves the rest of the thread", async () => {
+        if (!store.addComment || !store.deleteComment) return;
+
+        const fb = await store.createFeedback(createInput());
+        const doomed = await store.addComment(fb.id, {
+          body: "Typo, ignore me",
+          authorName: "Alice",
+          authorEmail: "",
+          authorRole: "client",
+        });
+        await store.addComment(fb.id, {
+          body: "The real report",
+          authorName: "Alice",
+          authorEmail: "",
+          authorRole: "client",
+        });
+
+        await store.deleteComment(fb.id, doomed.id);
+
+        const { feedbacks } = await store.getFeedbacks({ projectName: "test-project" });
+        expect(feedbacks[0]?.comments.map((c) => c.body)).toEqual(["The real report"]);
+      });
+
+      it("throws StoreNotFoundError when the comment does not belong to the feedback", async () => {
+        if (!store.addComment || !store.deleteComment) return;
+
+        const fb = await store.createFeedback(createInput());
+        const other = await store.createFeedback(createInput({ clientId: "other-client" }));
+        const comment = await store.addComment(other.id, {
+          body: "On the other thread",
+          authorName: "Alice",
+          authorEmail: "",
+          authorRole: "client",
+        });
+
+        await expect(store.deleteComment(fb.id, comment.id)).rejects.toThrow(StoreNotFoundError);
+        await expect(store.deleteComment(fb.id, "unknown-comment")).rejects.toThrow(StoreNotFoundError);
+      });
+
+      it("removes the thread with its feedback", async () => {
+        if (!store.addComment) return;
+
+        const fb = await store.createFeedback(createInput());
+        await store.addComment(fb.id, {
+          body: "Goes away with its feedback",
+          authorName: "Alice",
+          authorEmail: "",
+          authorRole: "client",
+        });
+
+        await store.deleteFeedback(fb.id);
+
+        const { feedbacks } = await store.getFeedbacks({ projectName: "test-project" });
+        expect(feedbacks).toHaveLength(0);
+      });
+    });
+
     describe("verifyProjectOwnership", () => {
       it("returns true for the owning project, false otherwise (when implemented)", async () => {
         // Optional member — stores without it skip the assertion but the

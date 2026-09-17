@@ -41,7 +41,7 @@ export function createArrayStore(): SitepingStore {
 }
 ```
 
-C'est un vrai adapter, pleinement conforme — c'est l'exemple contre lequel la suite de tests du kit lance elle-même les 44 tests de conformité. Remplacez les trois fonctions par votre stockage et c'est terminé : [`MemoryStore`](/fr/docs/adapters/memory) et [`LocalStorageStore`](/fr/docs/adapters/localstorage) sont ce même moteur avec d'autres primitives.
+C'est un vrai adapter, pleinement conforme — c'est l'exemple contre lequel la suite de tests du kit lance elle-même les 50 tests de conformité. Remplacez les trois fonctions par votre stockage et c'est terminé : [`MemoryStore`](/fr/docs/adapters/memory) et [`LocalStorageStore`](/fr/docs/adapters/localstorage) sont ce même moteur avec d'autres primitives.
 
 **Les trois primitives :**
 
@@ -127,9 +127,30 @@ async verifyProjectOwnership(id: string, projectName: string): Promise<boolean> 
 
 Implémentez-la dès que votre store sert plus d'un projet. En son absence, les handlers sautent la vérification et se fient au seul `id`.
 
+## Les commentaires sont aussi facultatifs
+
+`addComment` et `deleteComment` sont les deux autres membres optionnels — le [fil de discussion](/fr/docs/comments) d'un feedback. Les omettre donne un store valide et conforme : le handler HTTP répond `501`, et le widget comme le dashboard affichent les fils en lecture seule au lieu de proposer une zone de saisie inopérante.
+
+```ts
+async addComment(feedbackId: string, data: CommentCreateInput): Promise<CommentRecord> {
+  // Levez StoreNotFoundError quand le feedback n'existe pas.
+  return db.comment.create({ data: { feedbackId, ...data } });
+}
+
+async deleteComment(feedbackId: string, commentId: string): Promise<void> {
+  // Les deux ids : les handlers autorisent sur le feedback, donc un
+  // commentaire d'un autre fil doit se lire « introuvable », jamais comme
+  // une suppression réussie.
+  const { count } = await db.comment.deleteMany({ where: { id: commentId, feedbackId } });
+  if (count === 0) throw new StoreNotFoundError();
+}
+```
+
+Les commentaires reviennent avec le feedback lui-même (`FeedbackRecord.comments`, du plus ancien au plus récent) : `getFeedbacks` et `findByClientId` doivent donc inclure le fil — `[]` quand il n'y en a pas. `createCollectionStore` gère tout ça pour les backends snapshot, et `buildCommentRecord(input, { id, feedbackId })` construit l'enregistrement pour les backends à requêtes.
+
 ## La preuve : la suite de conformité
 
-La même suite que celle des adapters officiels. Pointez-la vers une factory qui renvoie un store neuf et vide, et elle exerce tout le contrat — 44 tests :
+La même suite que celle des adapters officiels. Pointez-la vers une factory qui renvoie un store neuf et vide, et elle exerce tout le contrat — 50 tests :
 
 ```ts
 // __tests__/my-store.test.ts

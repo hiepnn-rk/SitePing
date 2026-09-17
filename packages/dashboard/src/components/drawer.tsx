@@ -8,6 +8,7 @@ import { Diagnostics } from "./diagnostics.js";
 import { EvidenceCard } from "./evidence-card.js";
 import { CloseIcon, ExternalIcon, TrashIcon } from "./icons.js";
 import { StatusMenu } from "./status-menu.js";
+import { Thread } from "./thread.js";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -19,6 +20,10 @@ interface DrawerProps {
   onClose: () => void;
   onChangeStatus: (id: string, status: FeedbackStatus) => void;
   onDelete: (id: string) => void;
+  /** False when no `author` is configured, or the source cannot post — the thread stays read-only. */
+  canComment: boolean;
+  onAddComment: (id: string, body: string) => Promise<void>;
+  onDeleteComment: (id: string, commentId: string) => Promise<void>;
 }
 
 /**
@@ -34,6 +39,9 @@ export function Drawer({
   onClose,
   onChangeStatus,
   onDelete,
+  canComment,
+  onAddComment,
+  onDeleteComment,
 }: DrawerProps): ReactElement {
   const { t, locale } = useInboxUi();
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -164,6 +172,12 @@ export function Drawer({
             </dd>
           </dl>
           {hasDiagnostics && diagnostics ? <Diagnostics diagnostics={diagnostics} /> : null}
+          <Thread
+            record={record}
+            canComment={canComment}
+            onAdd={(body) => onAddComment(record.id, body)}
+            onDelete={(commentId) => onDeleteComment(record.id, commentId)}
+          />
           <div className="spd-danger-zone">
             {confirming ? (
               <div className="spd-confirm">

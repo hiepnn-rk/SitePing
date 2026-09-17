@@ -14,7 +14,11 @@ In order of likelihood:
 
 ## Do my clients need an account?
 
-No. The first time they send feedback, the widget asks for a name and email (kept in their browser for next time). If your app already knows who they are, pass `identity: { name, email }` and the prompt never shows.
+No. The first time they send feedback, the widget asks for a name — and an email, which is optional and can be left blank (both kept in their browser for next time). If your app already knows who they are, pass `identity: { name, email }` and the prompt never shows.
+
+## Can my client and I discuss a feedback?
+
+Yes — every feedback carries a discussion thread. The client replies from the widget's detail view, your team from the inbox drawer, and each reply is labelled `client` or `team` (the server enforces that, so a visitor can't post as staff). It's on by default; existing servers need one `npx @siteping/cli sync`. See [Comments](/docs/comments).
 
 ## Is it really free? What do I host?
 

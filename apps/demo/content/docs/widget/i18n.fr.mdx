@@ -1,9 +1,9 @@
 ---
 title: Langues
-description: Sept locales intégrées, chargées à la demande, avec des replis sensés.
+description: Huit locales intégrées, chargées à la demande, avec des replis sensés.
 ---
 
-Le widget est livré avec **7 locales intégrées** : anglais (`en`), français (`fr`), allemand (`de`), espagnol (`es`), italien (`it`), portugais brésilien (`pt`) et russe (`ru`).
+Le widget est livré avec **8 locales intégrées** : anglais (`en`), français (`fr`), allemand (`de`), espagnol (`es`), italien (`it`), portugais brésilien (`pt`), russe (`ru`) et japonais (`ja`).
 
 ```ts
 initSiteping({
@@ -19,6 +19,33 @@ initSiteping({
 - Les étiquettes BCP-47 complètes sont les bienvenues — `"fr-CA"` se résout en `fr`, `"pt-BR"` en `pt`.
 - Une locale inconnue affiche un `console.warn` et retombe sur l'anglais. Rien ne casse.
 - Pendant le chargement d'un chunk de locale, les libellés s'affichent en anglais et se re-localisent dès qu'il arrive ; les marqueurs, eux, attendent les traductions pour que les libellés destinés aux lecteurs d'écran ne soient jamais à moitié traduits.
+
+## Laisser le visiteur choisir sa langue
+
+`locale` définit la langue que *vous* choisissez. `localeSwitcher` confie ce
+choix au visiteur : l'option ajoute un sélecteur de langue dans l'en-tête du
+panneau de feedback.
+
+```ts
+initSiteping({
+  endpoint: "/api/siteping",
+  projectName: "mon-projet",
+  locale: "en",                 // ce que voit un visiteur pour la première fois
+  localeSwitcher: ["en", "ja"], // ce vers quoi il peut basculer
+});
+```
+
+- `true` liste toutes les locales intégrées ; un tableau liste exactement celles-ci, dans l'ordre donné. En dessous de deux entrées exploitables, aucun sélecteur n'est affiché.
+- Les options sont libellées dans leur propre langue (`English`, `日本語`) — qui ne lit pas la langue courante de l'interface reconnaît quand même la sienne.
+- Le choix est mémorisé par navigateur sous `siteping_locale` et restauré au chargement suivant, **en priorité sur `locale`** : le visiteur choisit une seule fois. Une locale mémorisée que le sélecteur ne propose plus est ignorée.
+- Le basculement re-libelle tout ce qui est à l'écran : le bouton flottant, l'annotateur, le panneau et les marqueurs. Le dictionnaire est chargé d'abord, donc rien ne s'affiche à moitié traduit.
+
+Pour brancher votre propre contrôle, le même chemin est accessible depuis le code :
+
+```ts
+await siteping.setLocale("ja"); // charge, re-libelle, mémorise
+siteping.getLocale();           // "ja"
+```
 
 ## Locales personnalisées
 
@@ -37,6 +64,6 @@ Faites `await loadLocale("fr")` avant l'init si vous voulez une locale intégré
 
 ## Le dashboard suit le même jeu
 
-`@siteping/dashboard` embarque les mêmes sept locales avec les mêmes règles de résolution, et expose son propre `registerLocale` avec le même comportement de dictionnaire partiel — voir [la documentation du dashboard](/fr/docs/dashboard#langues).
+`@siteping/dashboard` embarque les mêmes huit locales avec les mêmes règles de résolution, et expose son propre `registerLocale` avec le même comportement de dictionnaire partiel — voir [la documentation du dashboard](/fr/docs/dashboard#langues).
 
 Vous voulez votre langue en natif ? Les contributions de locales sont la porte d'entrée la plus accessible de ce projet — voir [CONTRIBUTING](https://github.com/NeosiaNexus/SitePing/blob/main/CONTRIBUTING.md) (« Adding a Locale »).

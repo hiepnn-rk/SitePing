@@ -23,7 +23,7 @@ Fonctionne avec n'importe quel `SitepingStore` en mémoire du processus — les 
 
 ## Source personnalisée
 
-Pour tRPC, GraphQL ou les server actions, implémentez le contrat `InboxSource` à trois méthodes et passez-le en `source` :
+Pour tRPC, GraphQL ou les server actions, implémentez le contrat `InboxSource` — trois méthodes obligatoires, plus deux optionnelles pour les [commentaires](/fr/docs/comments) — et passez-le en `source` :
 
 ```ts
 import type { InboxSource } from "@siteping/dashboard";
@@ -41,6 +41,14 @@ const source: InboxSource = {
   async remove(id, projectName) {
     await trpc.siteping.remove.mutate({ id, projectName });
   },
+  // Optionnelles — omettez les deux et l'inbox renvoie `canComment: false`
+  // et affiche les fils de discussion en lecture seule.
+  async addComment(feedbackId, projectName, input) {
+    return reviveCommentDates(await trpc.siteping.addComment.mutate({ feedbackId, projectName, ...input }));
+  },
+  async removeComment(feedbackId, commentId, projectName) {
+    await trpc.siteping.removeComment.mutate({ feedbackId, commentId, projectName });
+  },
 };
 ```
 
@@ -53,6 +61,7 @@ Les deux briques qui sous-tendent les modes intégrés sont également exportée
 | Ce que vous typez | Exports |
 |---|---|
 | Les données de feedback | `FeedbackRecord`, `FeedbackStatus`, `FeedbackType`, `SitepingStore`, ainsi que les constantes `FEEDBACK_STATUSES` / `FEEDBACK_TYPES` et `isClosedStatus()` |
+| Les commentaires | `CommentRecord`, `CommentCreateInput`, `CommentAuthorRole` |
 | Les options du hook | `UseSitepingInboxOptions` et ses trois membres — `InboxEndpointOptions`, `InboxStoreOptions`, `InboxCustomSourceOptions` — plus le socle commun `InboxSharedOptions` |
 | Le retour du hook | `InboxState`, `InboxStatusFilter`, `InboxTypeFilter` |
 | Les sources | `InboxSource`, `EndpointSourceOptions` (l'argument de `createEndpointSource`) |

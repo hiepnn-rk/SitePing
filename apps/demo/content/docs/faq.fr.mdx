@@ -14,7 +14,11 @@ Par ordre de probabilité :
 
 ## Mes clients ont-ils besoin d'un compte ?
 
-Non. La première fois qu'ils envoient un feedback, le widget demande un nom et un e-mail (conservés dans leur navigateur pour la fois suivante). Si votre app sait déjà qui ils sont, passez `identity: { name, email }` et la demande n'apparaît jamais.
+Non. La première fois qu'ils envoient un feedback, le widget demande un nom — et un e-mail, facultatif, qu'ils peuvent laisser vide (les deux sont conservés dans leur navigateur pour la fois suivante). Si votre app sait déjà qui ils sont, passez `identity: { name, email }` et la demande n'apparaît jamais.
+
+## Mon client et moi pouvons-nous échanger sur un feedback ?
+
+Oui — chaque feedback porte un fil de discussion. Le client répond depuis la vue détail du widget, votre équipe depuis le tiroir de l'inbox, et chaque réponse est étiquetée `client` ou `team` (le serveur le vérifie, donc un visiteur ne peut pas publier au nom de l'équipe). C'est actif par défaut ; les serveurs existants ont besoin d'un `npx @siteping/cli sync`. Voir [Commentaires](/fr/docs/comments).
 
 ## C'est vraiment gratuit ? Qu'est-ce que j'héberge ?
 

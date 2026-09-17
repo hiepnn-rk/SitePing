@@ -1,4 +1,6 @@
 import type {
+  CommentCreateInput,
+  CommentRecord,
   FeedbackPage,
   FeedbackQuery,
   FeedbackRecord,
@@ -32,6 +34,17 @@ export interface InboxSource {
   setStatus(id: string, projectName: string, status: FeedbackStatus): Promise<FeedbackRecord>;
   /** Permanently delete a feedback. */
   remove(id: string, projectName: string): Promise<void>;
+  /**
+   * Optional — post a reply on a feedback's discussion thread.
+   *
+   * Optional so a source built before comments (or against a backend without
+   * them) still satisfies the interface: the inbox reports `canComment:
+   * false` and renders the thread read-only instead of offering a composer
+   * that cannot work.
+   */
+  addComment?(feedbackId: string, projectName: string, input: CommentCreateInput): Promise<CommentRecord>;
+  /** Optional — delete one comment from a thread. Paired with {@link InboxSource.addComment}. */
+  removeComment?(feedbackId: string, commentId: string, projectName: string): Promise<void>;
 }
 
 /** Options accepted by `createEndpointSource`. */
@@ -72,6 +85,16 @@ export interface InboxSharedOptions {
   onDelete?: ((feedback: FeedbackRecord) => void) | undefined;
   /** Called on every load or mutation failure, with a typed `SitepingError` where available. */
   onError?: ((error: Error) => void) | undefined;
+  /**
+   * Who replies from this dashboard — typically the signed-in team member.
+   * Required to post on a feedback's discussion thread: without it the
+   * thread renders read-only rather than attributing replies to nobody.
+   *
+   * Replies are sent with `authorRole: "team"`, but the server only honours
+   * that for an authenticated request — configure `apiKey` (endpoint mode)
+   * or the inbox's replies land as `client`.
+   */
+  author?: { name: string; email?: string | undefined } | undefined;
 }
 
 /** Custom-source mode — bring your own `InboxSource` (tRPC, GraphQL, …). */
@@ -192,6 +215,20 @@ export interface InboxState {
   changeStatus(id: string, status: FeedbackStatus): Promise<void>;
   /** Optimistic delete (no undo — confirm in the UI) with rollback on error. Rejects after rolling back. */
   deleteFeedback(id: string): Promise<void>;
+  /**
+   * Whether replies can be posted: the source implements `addComment` AND an
+   * `author` was configured. False renders the thread read-only.
+   */
+  canComment: boolean;
+  /**
+   * Post a reply on a feedback's thread, attributed to the configured
+   * `author`. Resolves once persisted (no optimistic insert — a reply that
+   * silently vanished on refresh would be worse than a half-second wait) and
+   * rejects with the error after surfacing it through `onError`.
+   */
+  addComment(id: string, body: string): Promise<void>;
+  /** Delete one reply. Rejects with the error after surfacing it through `onError`. */
+  deleteComment(id: string, commentId: string): Promise<void>;
   /** Last status change eligible for undo, or `null`. */
   pendingUndo: { id: string; previousStatus: FeedbackStatus } | null;
   /** Revert the pending status change. Clears `pendingUndo` without creating a new one. */

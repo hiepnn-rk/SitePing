@@ -138,3 +138,22 @@ export function CheckIcon({ className }: IconProps): ReactElement {
     </svg>
   );
 }
+
+/** 💬 — speech bubble for the discussion thread. */
+export function ChatIcon({ className }: IconProps): ReactElement {
+  return (
+    <svg {...SVG} aria-hidden="true" className={className}>
+      <path d="M14 7.5c0 3-2.7 5.5-6 5.5a6.9 6.9 0 0 1-2.2-.35L2.5 14l1.1-2.6A5.2 5.2 0 0 1 2 7.5C2 4.46 4.7 2 8 2s6 2.46 6 5.5Z" />
+    </svg>
+  );
+}
+
+/** ➤ — paper plane, the composer's send affordance. */
+export function SendIcon({ className }: IconProps): ReactElement {
+  return (
+    <svg {...SVG} aria-hidden="true" className={className}>
+      <path d="M14.5 1.5 7 9" />
+      <path d="M14.5 1.5 10 14.5 7 9 1.5 6l13-4.5Z" />
+    </svg>
+  );
+}

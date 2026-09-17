@@ -1,0 +1,126 @@
+---
+title: Comments
+description: Turn a one-way report into a conversation — the client replies in the widget, your team replies in the inbox.
+---
+
+A feedback is rarely the whole story. "The button is broken" needs a "on which browser?", and "fixed in staging" needs a "confirmed, thanks". Every feedback carries a **discussion thread**: the client writes on it from the widget, your team from the dashboard, and both see the same conversation anchored to the same annotation.
+
+Nothing to install and nothing to enable in the widget — it is on by default. Servers need one migration (below).
+
+## The loop
+
+| Side | Who writes | Role stored |
+|---|---|---|
+| Widget panel → feedback detail → **Discussion** | the site's visitor | `client` |
+| `<SitepingInbox />` → drawer → **Discussion** | your team | `team` |
+
+Replies are shown oldest-first with an author, a role chip and a timestamp. `⌘/Ctrl + Enter` sends; plain Enter keeps writing.
+
+## Server setup
+
+Comments live in their own table, so an existing project needs one sync:
+
+```bash
+npx @siteping/cli sync   # adds SitepingComment + the Feedback.comments relation
+npx prisma db push
+```
+
+Until you do, everything keeps working: feedbacks read and write as before, threads come back empty, and a comment write answers `501` instead of failing loudly. The widget and the dashboard both read that as "no comments here" and hide their composer — the thread stays readable, never broken.
+
+Store-backed setups (`@siteping/adapter-memory`, `@siteping/adapter-localstorage`) need nothing at all.
+
+## Widget
+
+The thread renders in the feedback detail view, under the message and its screenshot:
+
+```ts
+initSiteping({
+  endpoint: "/api/siteping",
+  projectName: "my-project",
+  comments: false, // opt out — no thread, no composer, nothing rendered
+});
+```
+
+The author is the identity the visitor already gave when submitting a feedback (`config.identity`, the saved one, or the modal — in that order), so a reply never asks twice. A visitor who has *never* submitted anything still gets the modal on their first reply.
+
+```ts
+siteping.on("comment:added", (comment) => {
+  analytics.track("client_replied", { feedbackId: comment.feedbackId });
+});
+```
+
+`onCommentAdded` is the equivalent config callback.
+
+## Dashboard
+
+Replying needs to know who is replying, so the inbox takes an `author`:
+
+```tsx
+<SitepingInbox
+  projects="my-project"
+  endpoint="/api/siteping"
+  apiKey={process.env.SITEPING_API_KEY}
+  author={{ name: session.user.name, email: session.user.email }}
+/>
+```
+
+Without `author` the thread is read-only — better than attributing a reply to nobody. With it, the drawer gets a composer and each reply a delete button.
+
+The headless hook exposes the same three things:
+
+```ts
+const inbox = useSitepingInbox({ projects: "my-project", endpoint: "/api/siteping", author });
+
+inbox.canComment;                          // author set AND the source can post
+await inbox.addComment(id, "Fixed in 1.4.2");
+await inbox.deleteComment(id, commentId);
+```
+
+Unlike status changes, comments are **not** optimistic: `addComment` resolves once the store has the reply, and the thread shows exactly what was persisted. Failures reject (after `onError`) and the composer keeps the typed text.
+
+## Roles are enforced, not trusted
+
+The widget posts from a visitor's browser, so the `authorRole` on the wire is an untrusted claim. The handler downgrades `team` to `client` unless the request carries the API key:
+
+- **dashboard with `apiKey`** → replies stored as `team`;
+- **dashboard without `apiKey`** → replies stored as `client` (the UI cannot mark itself as staff);
+- **widget** → always `client`.
+
+Comment author emails are redacted exactly like `authorEmail` on a feedback: an unauthenticated `GET` sees `""`, a Bearer-authenticated one sees the address.
+
+Deleting a comment is a destructive call: it needs the API key, like deleting a feedback. That is why the widget never shows a delete button — the thread is append-only from the client's side.
+
+## Wire format
+
+Both operations ride the endpoint you already mounted. `feedbackId` in a `POST` body is what makes it a comment rather than a new feedback; `commentId` in a `DELETE` body is what makes it a comment rather than a feedback.
+
+```http
+POST /api/siteping
+{ "feedbackId": "ck…", "projectName": "my-project", "body": "Still broken on Safari",
+  "authorName": "Alice", "authorEmail": "alice@example.com", "authorRole": "client" }
+→ 201 { "id": "cm…", "feedbackId": "ck…", "body": "…", "authorRole": "client", "createdAt": "…" }
+
+DELETE /api/siteping
+{ "feedbackId": "ck…", "commentId": "cm…", "projectName": "my-project" }
+→ 200 { "deleted": true }
+```
+
+Answers you may get: `404` when the thread does not exist **or** belongs to another project (the two are deliberately indistinguishable), `501` when the store has no comment support, `400` on an empty or over-long body (5 000 characters max).
+
+Threads come back on the feedback itself, so listing costs no extra request:
+
+```ts
+const { feedbacks } = await store.getFeedbacks({ projectName: "my-project" });
+feedbacks[0].comments; // CommentRecord[], oldest first
+```
+
+## Store contract
+
+`addComment` and `deleteComment` are optional members of `SitepingStore` — an adapter that predates comments still satisfies the interface, and its absence is the capability signal every caller reads:
+
+```ts
+addComment?(feedbackId: string, data: CommentCreateInput): Promise<CommentRecord>;
+deleteComment?(feedbackId: string, commentId: string): Promise<void>;
+```
+
+`deleteComment` takes both ids on purpose: handlers authorize a caller against the *feedback*, so scoping the delete to that thread makes "wrong feedback" and "unknown comment" the same `StoreNotFoundError`. Adapters built on `createCollectionStore` get both for free, and the [conformance suite](/docs/adapters/writing-an-adapter) covers them.

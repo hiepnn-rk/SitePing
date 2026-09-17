@@ -25,7 +25,7 @@ export class Tooltip {
 
   constructor(
     private readonly colors: ThemeColors,
-    private readonly locale: string = "en",
+    private locale: string = "en",
   ) {
     this.root = el("div", {
       style: `
@@ -214,6 +214,17 @@ export class Tooltip {
         left:${arrowLeft}px;
       `;
     }
+  }
+
+  /**
+   * Switch the language used for the tooltip's labels and relative dates.
+   *
+   * The tooltip rebuilds its content on every show (it reads `createT(locale)`
+   * there), so there is nothing to re-render here — the next hover already
+   * speaks the new language.
+   */
+  setLocale(locale: string): void {
+    this.locale = locale;
   }
 
   /** Check if a DOM node belongs to this tooltip (for MutationObserver filtering). */

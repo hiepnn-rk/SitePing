@@ -65,6 +65,18 @@ export const pt: Translations = {
   "drawer.deleteConfirm": "Excluir permanentemente? Esta ação não pode ser desfeita.",
   "drawer.deleteYes": "Excluir",
 
+  // Discussion thread
+  "comments.title": "Discussão",
+  "comments.empty": "Nenhuma resposta ainda.",
+  "comments.placeholder": "Responder ao cliente…",
+  "comments.submit": "Enviar",
+  "comments.sending": "Enviando…",
+  "comments.error": "Não foi possível enviar sua resposta",
+  "comments.hint": "⌘/Ctrl + Enter para enviar",
+  "comments.delete": "Excluir resposta",
+  "comments.roleTeam": "Equipe",
+  "comments.roleClient": "Cliente",
+
   // Hints
   "hints.navigate": "navegar",
   "hints.open": "abrir",

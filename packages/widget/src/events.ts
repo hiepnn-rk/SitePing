@@ -1,4 +1,4 @@
-import type { FeedbackResponse, SitepingUnsubscribe } from "@siteping/core";
+import type { CommentResponse, FeedbackResponse, SitepingUnsubscribe } from "@siteping/core";
 import type { AnnotationComplete } from "./annotator.js";
 
 /** Listener signature for a single key of an `EventBus` event map. */
@@ -59,6 +59,8 @@ export interface WidgetEvents {
   "feedback:sent": [FeedbackResponse];
   "feedback:deleted": [FeedbackResponse["id"]];
   "feedback:all-deleted": [];
+  /** A comment was posted from the panel's discussion thread. */
+  "comment:added": [CommentResponse];
   "feedback:error": [Error];
   /** Emitted whenever the marker set changes — payload is the open (unresolved) count for the current page. */
   "markers:changed": [number];

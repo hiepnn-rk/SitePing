@@ -1,5 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import {
+  type CommentAuthorRole,
+  type CommentCreateInput,
+  type CommentDeletePayload,
+  type CommentPayload,
+  type CommentRecord,
   clampPagination,
   type FeedbackCreateInput,
   type FeedbackPage,
@@ -20,6 +25,8 @@ import {
   toFeedbackUpdate,
 } from "@siteping/core";
 import {
+  commentCreateSchema,
+  commentDeleteSchema,
   feedbackCreateSchema,
   feedbackDeleteSchema,
   feedbackPatchSchema,
@@ -113,6 +120,14 @@ type _AssertDelegateBivariance = AssertTrue<GeneratedDelegateProbe extends Prism
  */
 export interface SitepingPrismaClient {
   sitepingFeedback: PrismaModelDelegate;
+  /**
+   * Present only once the host's schema declares the `SitepingComment` model
+   * (`npx @siteping/cli sync` + `npx prisma db push`). Optional on purpose:
+   * a host still on the pre-comments schema keeps type-checking, and
+   * `PrismaStore` degrades to a read-only thread rather than throwing on
+   * every read (see the `addComment` wiring in its constructor).
+   */
+  sitepingComment?: PrismaModelDelegate;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +135,15 @@ export interface SitepingPrismaClient {
 // ---------------------------------------------------------------------------
 
 const INCLUDE_ANNOTATIONS = { annotations: true } as const;
+/**
+ * Read shape once the `SitepingComment` model exists. Threads are read
+ * oldest-first — the order every renderer (widget thread, dashboard drawer)
+ * displays them in, and the one the collection-store engine produces.
+ */
+const INCLUDE_ANNOTATIONS_AND_COMMENTS = {
+  annotations: true,
+  comments: { orderBy: { createdAt: "asc" } },
+} as const;
 
 /**
  * Prisma datasource providers whose generated client exposes `mode?: QueryMode`
@@ -229,6 +253,20 @@ function isStoredScreenshotUrl(url: unknown): url is string {
 }
 
 /**
+ * Normalise a Prisma row into a `FeedbackRecord`.
+ *
+ * Prisma returns exactly the columns the host's schema declares, so a host
+ * that hasn't migrated the `SitepingComment` model yet comes back without a
+ * `comments` key at all. Readers get `[]` there — the same shape a feedback
+ * with an empty thread has — rather than `undefined` leaking into the widget
+ * and the dashboard.
+ */
+function toRecord(row: unknown): FeedbackRecord {
+  const record = row as FeedbackRecord & { comments?: CommentRecord[] };
+  return record.comments === undefined ? { ...record, comments: [] } : record;
+}
+
+/**
  * Prisma-backed implementation of `SitepingStore`.
  *
  * Wraps a PrismaClient to satisfy the abstract store interface.
@@ -246,10 +284,32 @@ export class PrismaStore implements SitepingStore {
   private inlineFallbackWarned = false;
   /** @internal */
   private caseInsensitiveSearch: boolean;
+  /** Read shape for every query — includes `comments` only when the model exists. */
+  private readonly include: typeof INCLUDE_ANNOTATIONS | typeof INCLUDE_ANNOTATIONS_AND_COMMENTS;
+
+  /**
+   * Append a comment to a feedback's thread.
+   *
+   * Assigned in the constructor — and left `undefined` when the generated
+   * client has no `SitepingComment` delegate, i.e. the host hasn't run
+   * `npx @siteping/cli sync` yet. That absence is the store contract's own
+   * way of saying "this store cannot do comments": the HTTP handler answers
+   * 501 and both UIs hide their composer, instead of every post failing with
+   * an opaque Prisma error.
+   */
+  addComment?: (feedbackId: string, data: CommentCreateInput) => Promise<CommentRecord>;
+  /** Delete one comment from a thread — defined under the same condition as {@link addComment}. */
+  deleteComment?: (feedbackId: string, commentId: string) => Promise<void>;
 
   constructor(prisma: SitepingPrismaClient, options: PrismaStoreOptions = {}) {
     this.prisma = prisma;
     this.screenshotStorage = options.screenshotStorage;
+    const comments = prisma.sitepingComment;
+    this.include = comments ? INCLUDE_ANNOTATIONS_AND_COMMENTS : INCLUDE_ANNOTATIONS;
+    if (comments) {
+      this.addComment = (feedbackId, data) => this.insertComment(comments, feedbackId, data);
+      this.deleteComment = (feedbackId, commentId) => this.removeComment(comments, feedbackId, commentId);
+    }
     if (typeof options.caseInsensitiveSearch === "boolean") {
       this.caseInsensitiveSearch = options.caseInsensitiveSearch;
     } else {
@@ -278,55 +338,57 @@ export class PrismaStore implements SitepingStore {
   }
 
   private async insertFeedback(data: FeedbackCreateInput, screenshotUrl: string | null): Promise<FeedbackRecord> {
-    return (await this.prisma.sitepingFeedback.create({
-      data: {
-        projectName: data.projectName,
-        type: data.type,
-        message: data.message,
-        status: data.status,
-        url: data.url,
-        urlPattern: data.urlPattern ?? null,
-        screenshotUrl,
-        // Persisted as JSON when the model has a `screenshotRegion Json?`
-        // column — same omit-when-null contract as `diagnostics` below, so
-        // hosts that haven't run `npx siteping sync` keep working.
-        ...(data.screenshotRegion ? { screenshotRegion: data.screenshotRegion } : {}),
-        // Persisted as JSON when the model has a `diagnostics Json?` column.
-        // Hosts that haven't run `npx siteping sync` keep their schema as-is
-        // and Prisma will throw if we pass an unknown column, so omit the
-        // key entirely when diagnostics is null.
-        ...(data.diagnostics ? { diagnostics: data.diagnostics } : {}),
-        viewport: data.viewport,
-        userAgent: data.userAgent,
-        authorName: data.authorName,
-        authorEmail: data.authorEmail,
-        clientId: data.clientId,
-        annotations: {
-          create: data.annotations.map((ann) => ({
-            cssSelector: ann.cssSelector,
-            xpath: ann.xpath,
-            textSnippet: ann.textSnippet,
-            elementTag: ann.elementTag,
-            elementId: ann.elementId,
-            textPrefix: ann.textPrefix,
-            textSuffix: ann.textSuffix,
-            fingerprint: ann.fingerprint,
-            neighborText: ann.neighborText,
-            anchorKey: ann.anchorKey ?? null,
-            xPct: ann.xPct,
-            yPct: ann.yPct,
-            wPct: ann.wPct,
-            hPct: ann.hPct,
-            scrollX: ann.scrollX,
-            scrollY: ann.scrollY,
-            viewportW: ann.viewportW,
-            viewportH: ann.viewportH,
-            devicePixelRatio: ann.devicePixelRatio,
-          })),
+    return toRecord(
+      await this.prisma.sitepingFeedback.create({
+        data: {
+          projectName: data.projectName,
+          type: data.type,
+          message: data.message,
+          status: data.status,
+          url: data.url,
+          urlPattern: data.urlPattern ?? null,
+          screenshotUrl,
+          // Persisted as JSON when the model has a `screenshotRegion Json?`
+          // column — same omit-when-null contract as `diagnostics` below, so
+          // hosts that haven't run `npx siteping sync` keep working.
+          ...(data.screenshotRegion ? { screenshotRegion: data.screenshotRegion } : {}),
+          // Persisted as JSON when the model has a `diagnostics Json?` column.
+          // Hosts that haven't run `npx siteping sync` keep their schema as-is
+          // and Prisma will throw if we pass an unknown column, so omit the
+          // key entirely when diagnostics is null.
+          ...(data.diagnostics ? { diagnostics: data.diagnostics } : {}),
+          viewport: data.viewport,
+          userAgent: data.userAgent,
+          authorName: data.authorName,
+          authorEmail: data.authorEmail,
+          clientId: data.clientId,
+          annotations: {
+            create: data.annotations.map((ann) => ({
+              cssSelector: ann.cssSelector,
+              xpath: ann.xpath,
+              textSnippet: ann.textSnippet,
+              elementTag: ann.elementTag,
+              elementId: ann.elementId,
+              textPrefix: ann.textPrefix,
+              textSuffix: ann.textSuffix,
+              fingerprint: ann.fingerprint,
+              neighborText: ann.neighborText,
+              anchorKey: ann.anchorKey ?? null,
+              xPct: ann.xPct,
+              yPct: ann.yPct,
+              wPct: ann.wPct,
+              hPct: ann.hPct,
+              scrollX: ann.scrollX,
+              scrollY: ann.scrollY,
+              viewportW: ann.viewportW,
+              viewportH: ann.viewportH,
+              devicePixelRatio: ann.devicePixelRatio,
+            })),
+          },
         },
-      },
-      include: INCLUDE_ANNOTATIONS,
-    })) as FeedbackRecord;
+        include: this.include,
+      }),
+    );
   }
 
   /**
@@ -412,10 +474,11 @@ export class PrismaStore implements SitepingStore {
   }
 
   async findByClientId(clientId: string): Promise<FeedbackRecord | null> {
-    return (await this.prisma.sitepingFeedback.findUnique({
+    const row = await this.prisma.sitepingFeedback.findUnique({
       where: { clientId },
-      include: INCLUDE_ANNOTATIONS,
-    })) as FeedbackRecord | null;
+      include: this.include,
+    });
+    return row === null ? null : toRecord(row);
   }
 
   async getFeedbacks(query: FeedbackQuery): Promise<FeedbackPage> {
@@ -442,7 +505,7 @@ export class PrismaStore implements SitepingStore {
     const [feedbacks, total] = await Promise.all([
       this.prisma.sitepingFeedback.findMany({
         where,
-        include: INCLUDE_ANNOTATIONS,
+        include: this.include,
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
@@ -450,22 +513,71 @@ export class PrismaStore implements SitepingStore {
       this.prisma.sitepingFeedback.count({ where }),
     ]);
 
-    return { feedbacks: feedbacks as FeedbackRecord[], total };
+    return { feedbacks: feedbacks.map(toRecord), total };
   }
 
   async updateFeedback(id: string, data: FeedbackUpdateInput): Promise<FeedbackRecord> {
     try {
-      return (await this.prisma.sitepingFeedback.update({
-        where: { id },
-        data: {
-          status: data.status,
-          resolvedAt: data.resolvedAt,
-        },
-        include: INCLUDE_ANNOTATIONS,
-      })) as FeedbackRecord;
+      return toRecord(
+        await this.prisma.sitepingFeedback.update({
+          where: { id },
+          data: {
+            status: data.status,
+            resolvedAt: data.resolvedAt,
+          },
+          include: this.include,
+        }),
+      );
     } catch (error) {
       throw toStoreError(error);
     }
+  }
+
+  /**
+   * Insert one comment. The feedback is looked up first so an unknown
+   * `feedbackId` surfaces as `StoreNotFoundError` (the store contract) rather
+   * than a provider-specific foreign-key error — the codes for those differ
+   * per database, `P2025` does not cover them, and the handler must be able
+   * to answer 404.
+   */
+  private async insertComment(
+    comments: PrismaModelDelegate,
+    feedbackId: string,
+    data: CommentCreateInput,
+  ): Promise<CommentRecord> {
+    const parent = (await this.prisma.sitepingFeedback.findUnique({ where: { id: feedbackId } })) as {
+      id: string;
+    } | null;
+    if (parent === null) throw new StoreNotFoundError();
+
+    try {
+      return (await comments.create({
+        data: {
+          feedbackId,
+          body: data.body,
+          authorName: data.authorName,
+          authorEmail: data.authorEmail,
+          authorRole: data.authorRole,
+        },
+      })) as CommentRecord;
+    } catch (error) {
+      throw toStoreError(error);
+    }
+  }
+
+  /**
+   * Delete one comment, scoped to its thread: `deleteMany` with both ids
+   * makes "wrong feedback" and "unknown comment" the same zero-row outcome,
+   * so a caller authorized for one thread can never delete out of another.
+   */
+  private async removeComment(comments: PrismaModelDelegate, feedbackId: string, commentId: string): Promise<void> {
+    let result: { count?: number };
+    try {
+      result = (await comments.deleteMany({ where: { id: commentId, feedbackId } })) as { count?: number };
+    } catch (error) {
+      throw toStoreError(error);
+    }
+    if ((result.count ?? 0) === 0) throw new StoreNotFoundError();
   }
 
   async deleteFeedback(id: string): Promise<void> {
@@ -672,7 +784,15 @@ function safeCompare(a: string, b: string): boolean {
  */
 function toWireFeedback(feedback: FeedbackRecord, includeEmail: boolean): Omit<FeedbackRecord, "clientId"> {
   const { clientId: _clientId, ...wire } = feedback;
-  return includeEmail ? wire : { ...wire, authorEmail: "" };
+  if (includeEmail) return wire;
+  // Comment authors are redacted on the same terms as the feedback author —
+  // a thread would otherwise hand out every address the feedback hides.
+  return { ...wire, authorEmail: "", comments: wire.comments.map((c) => toWireComment(c, false)) };
+}
+
+/** Redaction for a single comment — same contract as {@link toWireFeedback}. */
+function toWireComment(comment: CommentRecord, includeEmail: boolean): CommentRecord {
+  return includeEmail ? comment : { ...comment, authorEmail: "" };
 }
 
 /**
@@ -780,6 +900,85 @@ export function createSitepingHandler({
     return null;
   }
 
+  /**
+   * Shared prelude for both comment routes: the store must support comments,
+   * and the thread must belong to the project the caller named. Returns the
+   * error response to send, or `null` when the write may proceed.
+   */
+  async function guardCommentWrite(
+    supported: boolean,
+    feedbackId: string,
+    projectName: string,
+  ): Promise<Response | null> {
+    if (!supported) {
+      // 501, not 404: the thread may well exist — this deployment's store
+      // just cannot persist comments (no `addComment`, or a Prisma schema
+      // without the SitepingComment model). Clients use this to fall back to
+      // a read-only thread instead of retrying.
+      return Response.json(
+        { error: "Comments are not supported by this store. Run `npx @siteping/cli sync` and `npx prisma db push`." },
+        { status: 501 },
+      );
+    }
+    if (store.verifyProjectOwnership) {
+      const owns = await store.verifyProjectOwnership(feedbackId, projectName);
+      if (!owns) return Response.json({ error: "Feedback not found" }, { status: 404 });
+    }
+    return null;
+  }
+
+  /** POST a comment onto an existing feedback's thread. */
+  async function postComment(request: Request, data: CommentPayload): Promise<Response> {
+    const add = store.addComment;
+    const denied = await guardCommentWrite(add !== undefined, data.feedbackId, data.projectName);
+    if (denied) return denied;
+
+    // POST stays public so the widget can post from a visitor's browser —
+    // which means `authorRole` arrives unauthenticated and cannot be trusted.
+    // Only a Bearer-authenticated caller (the dashboard, a server action) may
+    // speak as the team; everyone else is a client, whatever they claimed.
+    const authed = isBearerAuthenticated(request);
+    const authorRole: CommentAuthorRole = authed && data.authorRole === "team" ? "team" : "client";
+
+    try {
+      // Safe: `guardCommentWrite` returned a 501 when `add` was undefined.
+      const comment = await (add as NonNullable<typeof add>)(data.feedbackId, {
+        body: data.body,
+        authorName: data.authorName,
+        authorEmail: data.authorEmail,
+        authorRole,
+      });
+      return Response.json(toWireComment(comment, emailPermitted(request)), { status: 201 });
+    } catch (error) {
+      if (isStoreNotFound(error)) {
+        return Response.json({ error: "Feedback not found" }, { status: 404 });
+      }
+      const message = actionableErrorMessage(error);
+      console.error("[siteping] Failed to add comment:", error);
+      return Response.json({ error: message }, { status: 500 });
+    }
+  }
+
+  /** DELETE one comment from a thread. */
+  async function deleteComment(data: CommentDeletePayload): Promise<Response> {
+    const remove = store.deleteComment;
+    const denied = await guardCommentWrite(remove !== undefined, data.feedbackId, data.projectName);
+    if (denied) return denied;
+
+    try {
+      // Safe: `guardCommentWrite` returned a 501 when `remove` was undefined.
+      await (remove as NonNullable<typeof remove>)(data.feedbackId, data.commentId);
+      return Response.json({ deleted: true });
+    } catch (error) {
+      if (isStoreNotFound(error)) {
+        return Response.json({ error: "Comment not found" }, { status: 404 });
+      }
+      const message = actionableErrorMessage(error);
+      console.error("[siteping] Failed to delete comment:", error);
+      return Response.json({ error: message }, { status: 500 });
+    }
+  }
+
   return {
     /**
      * CORS preflight handler. In production, always configure `allowedOrigins`
@@ -798,6 +997,20 @@ export function createSitepingHandler({
       const body = await request.json().catch(() => null);
       if (!body) {
         return withCors(Response.json({ error: "Invalid JSON" }, { status: 400 }), corsHeaders);
+      }
+
+      // One POST endpoint, two resources: a body carrying `feedbackId` is a
+      // comment on an existing thread, anything else is a new feedback. The
+      // feedback payload has no `feedbackId`, so the two can never collide.
+      if (hasOwn(body, "feedbackId")) {
+        const parsedComment = commentCreateSchema.safeParse(body);
+        if (!parsedComment.success) {
+          return withCors(
+            Response.json({ errors: formatValidationErrors(parsedComment.error) }, { status: 400 }),
+            corsHeaders,
+          );
+        }
+        return withCors(await postComment(request, parsedComment.data), corsHeaders);
       }
 
       const parsed = feedbackCreateSchema.safeParse(body);
@@ -975,6 +1188,19 @@ export function createSitepingHandler({
         return withCors(Response.json({ error: "Invalid JSON" }, { status: 400 }), corsHeaders);
       }
 
+      // Same two-resource split as POST: `commentId` in the body means "delete
+      // one comment from a thread", never "delete the feedback".
+      if (hasOwn(body, "commentId")) {
+        const parsedComment = commentDeleteSchema.safeParse(body);
+        if (!parsedComment.success) {
+          return withCors(
+            Response.json({ errors: formatValidationErrors(parsedComment.error) }, { status: 400 }),
+            corsHeaders,
+          );
+        }
+        return withCors(await deleteComment(parsedComment.data), corsHeaders);
+      }
+
       const parsed = feedbackDeleteSchema.safeParse(body);
       if (!parsed.success) {
         return withCors(Response.json({ errors: formatValidationErrors(parsed.error) }, { status: 400 }), corsHeaders);
@@ -1021,7 +1247,7 @@ function isTableNotFoundError(error: unknown): error is { code: "P2021" } {
  */
 function actionableErrorMessage(error: unknown): string {
   if (isTableNotFoundError(error)) {
-    return "Table 'SitepingFeedback' not found. Run 'npx prisma db push' to create it.";
+    return "A Siteping table was not found. Run 'npx @siteping/cli sync' then 'npx prisma db push' to create it.";
   }
   return "Internal server error";
 }

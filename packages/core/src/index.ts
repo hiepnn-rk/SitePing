@@ -1,6 +1,13 @@
 export { EMAIL_PATTERN, isValidEmail } from "./email.js";
 export type { SitepingErrorCode } from "./errors.js";
-export { SitepingAuthError, SitepingError, SitepingNetworkError, SitepingValidationError } from "./errors.js";
+export {
+  isUnsupported,
+  SitepingAuthError,
+  SitepingError,
+  SitepingNetworkError,
+  SitepingUnsupportedError,
+  SitepingValidationError,
+} from "./errors.js";
 export type { FilterResult, Pagination } from "./filters.js";
 export { applyFeedbackFilters, clampPagination, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "./filters.js";
 export type { I18n, LocaleLoaders, TranslateFunction } from "./i18n.js";
@@ -20,7 +27,12 @@ export type {
 export { isRelationField, isScalarField, SITEPING_MODELS } from "./schema.js";
 export type { ScreenshotStorage } from "./screenshot-storage.js";
 export type { CollectionStore, CollectionStoreBackend } from "./store-helpers.js";
-export { buildAnnotationRecord, buildFeedbackRecord, createCollectionStore } from "./store-helpers.js";
+export {
+  buildAnnotationRecord,
+  buildCommentRecord,
+  buildFeedbackRecord,
+  createCollectionStore,
+} from "./store-helpers.js";
 export type { AssertEqual, IfEquals, Prettify, Serialized } from "./type-utils.js";
 export { hasOwn, isRecord } from "./type-utils.js";
 export type {
@@ -31,6 +43,12 @@ export type {
   AnnotationResponse,
   BuiltinLocale,
   ClosedFeedbackStatus,
+  CommentAuthorRole,
+  CommentCreateInput,
+  CommentDeletePayload,
+  CommentPayload,
+  CommentRecord,
+  CommentResponse,
   ConsoleDiagnosticEntry,
   ConsoleDiagnosticLevel,
   DiagnosticsCaptureOptions,
@@ -70,6 +88,7 @@ export type {
 export {
   BUILTIN_LOCALES,
   CLOSED_FEEDBACK_STATUSES,
+  COMMENT_AUTHOR_ROLES,
   CONSOLE_DIAGNOSTIC_LEVELS,
   FEEDBACK_STATUSES,
   FEEDBACK_TYPES,
@@ -78,6 +97,7 @@ export {
   isStoreDuplicate,
   isStoreNotFound,
   isStorePersistence,
+  LOCALE_LABELS,
   OPEN_FEEDBACK_STATUSES,
   StoreDuplicateError,
   StoreNotFoundError,

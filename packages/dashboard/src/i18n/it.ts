@@ -66,6 +66,18 @@ export const it: Translations = {
   "drawer.deleteConfirm": "Eliminare definitivamente? Questa azione non può essere annullata.",
   "drawer.deleteYes": "Elimina",
 
+  // Discussion thread
+  "comments.title": "Discussione",
+  "comments.empty": "Nessuna risposta per ora.",
+  "comments.placeholder": "Rispondi al cliente…",
+  "comments.submit": "Invia",
+  "comments.sending": "Invio…",
+  "comments.error": "Impossibile inviare la risposta",
+  "comments.hint": "⌘/Ctrl + Invio per inviare",
+  "comments.delete": "Elimina risposta",
+  "comments.roleTeam": "Team",
+  "comments.roleClient": "Cliente",
+
   // Keyboard hints
   "hints.navigate": "naviga",
   "hints.open": "apri",
