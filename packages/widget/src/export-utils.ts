@@ -24,6 +24,8 @@ export const EXPORT_CSS = `
 
   .sp-export-btn {
     padding: 5px 12px;
+    white-space: nowrap;
+    flex: none;
     border-radius: var(--sp-radius-full);
     border: 1px solid var(--sp-border);
     background: transparent;

@@ -261,6 +261,7 @@ export function buildStyles(colors: ThemeColors): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 12px;
       padding: 20px 24px;
       border-bottom: 1px solid var(--sp-border);
       background: var(--sp-glass-bg-heavy);
@@ -275,11 +276,19 @@ export function buildStyles(colors: ThemeColors): string {
       font-weight: 700;
       color: var(--sp-text);
       letter-spacing: -0.02em;
+      /* CJK breaks between any two characters — no space required — so a tight
+         header splits 「フィードバック」 across two lines. Ellipsis is the last
+         resort for a locale that still overruns. */
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
     }
 
     .sp-panel-close {
       width: 44px;
       height: 44px;
+      flex: none;
       border-radius: var(--sp-radius);
       border: none;
       background: transparent;
@@ -853,6 +862,7 @@ export function buildStyles(colors: ThemeColors): string {
       display: flex;
       align-items: center;
       gap: 8px;
+      flex: none;
     }
 
     /* ---- Locale switcher (header) ---- */
@@ -912,6 +922,8 @@ export function buildStyles(colors: ThemeColors): string {
 
     .sp-btn-delete-all {
       padding: 5px 12px;
+      white-space: nowrap;
+      flex: none;
       border-radius: var(--sp-radius-full);
       border: 1px solid var(--sp-border);
       background: transparent;
