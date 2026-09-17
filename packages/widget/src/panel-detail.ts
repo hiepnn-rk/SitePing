@@ -1134,7 +1134,9 @@ export class DetailView {
     const badge = el("span", { class: "sp-badge" });
     badge.style.background = getTypeBgColor(feedback.type, this.colors);
     badge.style.color = getTypeColor(feedback.type, this.colors);
-    setText(badge, feedback.type);
+    // The list already shows the translated type; the detail header used to print
+    // the raw wire value ("bug"), which reads as untranslated UI in every locale.
+    setText(badge, this.t(`type.${feedback.type}`));
     header.appendChild(badge);
 
     // ---- Build content sections ----
@@ -1502,7 +1504,7 @@ export class DetailView {
     // Date
     this.addMetaRow(meta, ICON_CALENDAR, this.t("detail.date"), () => {
       const value = el("div", { class: "sp-detail-meta-value" });
-      setText(value, formatFullDate(feedback.createdAt, this.locale.startsWith("fr") ? "fr" : "en"));
+      setText(value, formatFullDate(feedback.createdAt, this.locale));
       return value;
     });
 
@@ -1532,7 +1534,7 @@ export class DetailView {
       const dateLabel = feedback.status === "wont_fix" ? this.t("detail.closedAt") : this.t("detail.resolvedAt");
       this.addMetaRow(meta, ICON_CHECK, dateLabel, () => {
         const value = el("div", { class: "sp-detail-meta-value sp-detail-meta-value--secondary" });
-        setText(value, formatFullDate(resolvedDate, this.locale.startsWith("fr") ? "fr" : "en"));
+        setText(value, formatFullDate(resolvedDate, this.locale));
         return value;
       });
     }

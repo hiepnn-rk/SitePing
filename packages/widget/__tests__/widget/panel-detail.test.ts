@@ -232,11 +232,11 @@ describe("DetailView", () => {
       fr.host.remove();
     });
 
-    it("renders the type badge with label", () => {
+    it("renders the type badge with the translated label, not the wire value", () => {
       setup.view.show(makeFeedback({ type: "question" }), 1);
       const badge = setup.view.element.querySelector<HTMLElement>(".sp-badge");
       expect(badge).not.toBeNull();
-      expect(badge!.textContent).toBe("question");
+      expect(badge!.textContent).toBe("Question");
     });
 
     it("replaces title/badge on subsequent show() calls", () => {
@@ -248,7 +248,7 @@ describe("DetailView", () => {
       expect(titles.length).toBe(1);
       expect(badges.length).toBe(1);
       expect(titles[0]!.textContent).toBe("Feedback #2");
-      expect(badges[0]!.textContent).toBe("change");
+      expect(badges[0]!.textContent).toBe("Change");
     });
 
     it("makes the view visible (aria-hidden=false, --visible class)", async () => {
