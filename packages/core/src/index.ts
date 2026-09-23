@@ -32,6 +32,9 @@ export {
   buildCommentRecord,
   buildFeedbackRecord,
   createCollectionStore,
+  mergeImportedFeedbacks,
+  reviveFeedbackRecord,
+  serializeFeedbackRecord,
 } from "./store-helpers.js";
 export type { AssertEqual, IfEquals, Prettify, Serialized } from "./type-utils.js";
 export { hasOwn, isRecord } from "./type-utils.js";
@@ -53,7 +56,9 @@ export type {
   ConsoleDiagnosticLevel,
   DiagnosticsCaptureOptions,
   DiagnosticsSnapshot,
+  FeedbackBackupRecord,
   FeedbackCreateInput,
+  FeedbackImportResult,
   FeedbackPage,
   FeedbackPayload,
   FeedbackQuery,
@@ -90,6 +95,7 @@ export {
   CLOSED_FEEDBACK_STATUSES,
   COMMENT_AUTHOR_ROLES,
   CONSOLE_DIAGNOSTIC_LEVELS,
+  FEEDBACK_IMPORT_BATCH_SIZE,
   FEEDBACK_STATUSES,
   FEEDBACK_TYPES,
   flattenAnnotation,

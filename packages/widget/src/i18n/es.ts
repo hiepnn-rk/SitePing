@@ -173,5 +173,22 @@ export const es: Translations = {
   // Export controls
   "export.label": "Exportar",
   "export.csv": "Exportar CSV",
+  "export.database": "Exportar base de datos",
+  "export.importDatabase": "Importar base de datos",
   "export.json": "Exportar JSON",
+
+  // Database import
+  "import.confirmTitle": "Importar comentarios",
+  "import.confirmMessage":
+    "¿Importar {create} comentarios nuevos y actualizar {update} existentes (comparados por id)? Los actualizados se reemplazan por la versión del archivo.",
+  "import.confirm": "Importar",
+  "import.doneTitle": "Importación completada",
+  "import.doneMessage": "{created} añadidos, {updated} actualizados, {skipped} omitidos, {failed} con error.",
+  "import.errorTitle": "Error de importación",
+  "import.invalidFile": "Este archivo no es una copia de seguridad válida de Siteping.",
+  "import.unsupported": "Este backend no permite importar copias de seguridad.",
+  "export.errorTitle": "Error de exportación",
+  "backup.authRequired": "El servidor requiere la clave de API para exportar o importar.",
+  "backup.failed": "La operación falló. Inténtalo de nuevo.",
+  "import.ok": "Aceptar",
 };

@@ -1,19 +1,31 @@
 import {
   CLOSED_FEEDBACK_STATUSES,
   FEEDBACK_STATUSES,
+  type FeedbackBackupRecord,
   type FeedbackResponse,
   type FeedbackStatus,
   type FeedbackType,
   isClosedStatus,
+  isUnsupported,
   LOCALE_LABELS,
   type PageScope,
+  SitepingAuthError,
 } from "@siteping/core";
 import type { GetFeedbacksOptions, WidgetClient } from "./api-client.js";
+import {
+  createBackup,
+  fetchAllRecords,
+  fetchExistingIds,
+  InvalidBackupError,
+  importRecords,
+  parseBackup,
+  planImport,
+} from "./backup.js";
 import { SegmentedControl } from "./components/segmented-control.js";
 import { PAGE_SIZE } from "./constants.js";
 import { el, formatRelativeDate, parseSvg, setButtonLoading, setText } from "./dom-utils.js";
 import type { EventBus, WidgetEvents } from "./events.js";
-import { ExportButton } from "./export-utils.js";
+import { downloadFile, ExportButton } from "./export-utils.js";
 import { getStatusLabel, getTypeLabel, type TFunction, tWithParams } from "./i18n/index.js";
 import {
   ICON_BUG,
@@ -157,7 +169,10 @@ export class Panel {
     this.deleteAllBtn.addEventListener("click", () => this.confirmDeleteAll());
 
     // Export button
-    this.exportBtn = new ExportButton(colors, () => this.feedbacks, this.t);
+    this.exportBtn = new ExportButton(colors, () => this.feedbacks, this.t, {
+      onExport: () => void this.exportDatabase(),
+      onImport: (file) => void this.importDatabase(file),
+    });
 
     const headerRight = el("div", { class: "sp-panel-header-right" });
     const localeSwitcher = pageScopeOptions?.localeSwitcher;
@@ -878,7 +893,78 @@ export class Panel {
     }
   }
 
-  private showConfirmDialog(title: string, message: string): Promise<boolean> {
+  /** Download every feedback of the project — full records, all pages, all statuses — as a backup file. */
+  private async exportDatabase(): Promise<void> {
+    try {
+      const backup = createBackup(this.projectName, await fetchAllRecords(this.client));
+      const safeName = this.projectName.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const date = backup.exportedAt.slice(0, 10);
+      downloadFile(
+        JSON.stringify(backup, null, 2),
+        `siteping-backup-${safeName}-${date}.json`,
+        "application/json;charset=utf-8",
+      );
+    } catch (error) {
+      await this.reportBackupError("export.errorTitle", error);
+    }
+  }
+
+  /**
+   * Restore a backup file into the current project. Records are matched by
+   * `id` first, so the confirmation says how many are new and how many will
+   * overwrite an existing feedback.
+   */
+  private async importDatabase(file: File): Promise<void> {
+    let records: FeedbackBackupRecord[];
+    try {
+      records = parseBackup(await file.text());
+    } catch (error) {
+      if (!(error instanceof InvalidBackupError)) {
+        this.bus.emit("feedback:error", error instanceof Error ? error : new Error(String(error)));
+      }
+      await this.showConfirmDialog(this.t("import.errorTitle"), this.t("import.invalidFile"), { alertOnly: true });
+      return;
+    }
+
+    try {
+      const plan = planImport(await fetchExistingIds(this.client, this.projectName), records);
+      const confirmed = await this.showConfirmDialog(
+        this.t("import.confirmTitle"),
+        tWithParams(this.t, "import.confirmMessage", { ...plan }),
+        { confirmLabel: this.t("import.confirm"), danger: plan.update > 0 },
+      );
+      if (!confirmed) return;
+
+      const outcome = await importRecords(this.client, records);
+      await this.loadFeedbacks();
+      await this.showConfirmDialog(
+        this.t("import.doneTitle"),
+        tWithParams(this.t, "import.doneMessage", { ...outcome }),
+        {
+          alertOnly: true,
+        },
+      );
+    } catch (error) {
+      await this.reportBackupError("import.errorTitle", error);
+    }
+  }
+
+  /** Surface a backup failure to the host and explain the common causes in the panel. */
+  private async reportBackupError(titleKey: "export.errorTitle" | "import.errorTitle", error: unknown): Promise<void> {
+    this.bus.emit("feedback:error", error instanceof Error ? error : new Error(String(error)));
+    const messageKey = isUnsupported(error)
+      ? "import.unsupported"
+      : error instanceof SitepingAuthError
+        ? "backup.authRequired"
+        : "backup.failed";
+    await this.showConfirmDialog(this.t(titleKey), this.t(messageKey), { alertOnly: true });
+  }
+
+  private showConfirmDialog(
+    title: string,
+    message: string,
+    options: { confirmLabel?: string; danger?: boolean; alertOnly?: boolean } = {},
+  ): Promise<boolean> {
     return new Promise((resolve) => {
       const backdrop = el("div", { class: "sp-confirm-backdrop" });
 
@@ -908,8 +994,11 @@ export class Panel {
 
       const confirmBtn = document.createElement("button");
       confirmBtn.type = "button";
-      confirmBtn.className = "sp-btn-danger";
-      setText(confirmBtn, this.t("panel.confirmDelete"));
+      confirmBtn.className = options.danger === false || options.alertOnly ? "sp-btn-primary" : "sp-btn-danger";
+      setText(
+        confirmBtn,
+        options.alertOnly ? this.t("import.ok") : (options.confirmLabel ?? this.t("panel.confirmDelete")),
+      );
 
       let closed = false;
       const close = (result: boolean) => {
@@ -933,6 +1022,7 @@ export class Panel {
         }
         if (ke.key === "Tab") {
           ke.preventDefault();
+          if (options.alertOnly) return;
           const active = (backdrop.getRootNode() as ShadowRoot).activeElement;
           if (active === cancelBtn) {
             confirmBtn.focus();
@@ -949,7 +1039,7 @@ export class Panel {
         if (e.target === backdrop) close(false);
       });
 
-      btnRow.appendChild(cancelBtn);
+      if (!options.alertOnly) btnRow.appendChild(cancelBtn);
       btnRow.appendChild(confirmBtn);
       dialog.appendChild(titleEl);
       dialog.appendChild(messageEl);
@@ -963,7 +1053,7 @@ export class Panel {
       requestAnimationFrame(() => {
         backdrop.style.opacity = "1";
         dialog.style.transform = "translateY(0) scale(1)";
-        cancelBtn.focus();
+        (options.alertOnly ? confirmBtn : cancelBtn).focus();
       });
     });
   }

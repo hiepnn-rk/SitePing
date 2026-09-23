@@ -172,5 +172,22 @@ export const fr: Translations = {
   // Export controls
   "export.label": "Exporter",
   "export.csv": "Exporter CSV",
+  "export.database": "Exporter la base",
+  "export.importDatabase": "Importer une base",
   "export.json": "Exporter JSON",
+
+  // Database import
+  "import.confirmTitle": "Importer des retours",
+  "import.confirmMessage":
+    "Importer {create} nouveaux retours et mettre à jour {update} retours existants (comparés par id) ? Les retours mis à jour sont remplacés par la version du fichier.",
+  "import.confirm": "Importer",
+  "import.doneTitle": "Import terminé",
+  "import.doneMessage": "{created} ajoutés, {updated} mis à jour, {skipped} ignorés, {failed} en échec.",
+  "import.errorTitle": "Échec de l'import",
+  "import.invalidFile": "Ce fichier n'est pas une sauvegarde Siteping valide.",
+  "import.unsupported": "Ce backend ne permet pas d'importer une sauvegarde.",
+  "export.errorTitle": "Échec de l'export",
+  "backup.authRequired": "Le serveur exige la clé API pour exporter ou importer une sauvegarde.",
+  "backup.failed": "L'opération a échoué. Veuillez réessayer.",
+  "import.ok": "OK",
 };

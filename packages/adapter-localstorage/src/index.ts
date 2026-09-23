@@ -4,6 +4,7 @@ import {
   type CommentRecord,
   createCollectionStore,
   type FeedbackCreateInput,
+  type FeedbackImportResult,
   type FeedbackPage,
   type FeedbackQuery,
   type FeedbackRecord,
@@ -142,6 +143,10 @@ export class LocalStorageStore implements SitepingStore {
 
   deleteComment(feedbackId: string, commentId: string): Promise<void> {
     return this.engine.deleteComment(feedbackId, commentId);
+  }
+
+  importFeedbacks(projectName: string, records: FeedbackRecord[]): Promise<FeedbackImportResult> {
+    return this.engine.importFeedbacks(projectName, records);
   }
 
   /** Remove all data from localStorage for this store key. */

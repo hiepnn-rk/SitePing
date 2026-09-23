@@ -7,6 +7,7 @@ import {
   type CommentRecord,
   clampPagination,
   type FeedbackCreateInput,
+  type FeedbackImportResult,
   type FeedbackPage,
   type FeedbackPayload,
   type FeedbackQuery,
@@ -18,10 +19,12 @@ import {
   hasOwn,
   isStoreDuplicate,
   isStoreNotFound,
+  reviveFeedbackRecord,
   type ScreenshotStorage,
   type SitepingStore,
   StoreDuplicateError,
   StoreNotFoundError,
+  serializeFeedbackRecord,
   toFeedbackUpdate,
 } from "@siteping/core";
 import {
@@ -29,6 +32,7 @@ import {
   commentDeleteSchema,
   feedbackCreateSchema,
   feedbackDeleteSchema,
+  feedbackImportSchema,
   feedbackPatchSchema,
   formatValidationErrors,
   getQuerySchema,
@@ -580,6 +584,86 @@ export class PrismaStore implements SitepingStore {
     if ((result.count ?? 0) === 0) throw new StoreNotFoundError();
   }
 
+  /**
+   * Upsert full records by `id` — see `SitepingStore.importFeedbacks`.
+   *
+   * An update is a delete + re-create of the row under the same id (the
+   * cascade takes the old annotations and comments with it): nested JSON
+   * columns cannot be reset to NULL without `Prisma.DbNull`, which a
+   * structural client does not expose. The whole batch runs inside
+   * `$transaction` when the client has one, so a failure never leaves a
+   * record deleted and not yet re-created.
+   */
+  async importFeedbacks(projectName: string, records: FeedbackRecord[]): Promise<FeedbackImportResult> {
+    const run = async (client: SitepingPrismaClient): Promise<FeedbackImportResult> => {
+      const result: FeedbackImportResult = { created: 0, updated: 0, skipped: 0 };
+      for (const record of records) {
+        const existing = (await client.sitepingFeedback.findUnique({
+          where: { id: record.id },
+          select: { projectName: true },
+        })) as { projectName: string } | null;
+        const clientOwner = (await client.sitepingFeedback.findUnique({
+          where: { clientId: record.clientId },
+          select: { id: true },
+        })) as { id: string } | null;
+        if ((existing && existing.projectName !== projectName) || (clientOwner && clientOwner.id !== record.id)) {
+          result.skipped += 1;
+          continue;
+        }
+        if (existing) await client.sitepingFeedback.delete({ where: { id: record.id } });
+        await client.sitepingFeedback.create({ data: this.importData(projectName, record) });
+        if (existing) result.updated += 1;
+        else result.created += 1;
+      }
+      return result;
+    };
+
+    const transaction = (this.prisma as { $transaction?: unknown }).$transaction;
+    try {
+      if (typeof transaction === "function") {
+        return (await transaction.call(this.prisma, (tx: SitepingPrismaClient) => run(tx))) as FeedbackImportResult;
+      }
+      return await run(this.prisma);
+    } catch (error) {
+      throw toStoreError(error);
+    }
+  }
+
+  /** Prisma `create` data for an imported record — ids and timestamps kept verbatim. */
+  private importData(projectName: string, record: FeedbackRecord): Record<string, unknown> {
+    return {
+      id: record.id,
+      projectName,
+      type: record.type,
+      message: record.message,
+      status: record.status,
+      url: record.url,
+      urlPattern: record.urlPattern ?? null,
+      screenshotUrl: record.screenshotUrl ?? null,
+      // Same omit-when-null contract as `insertFeedback` for the JSON columns.
+      ...(record.screenshotRegion ? { screenshotRegion: record.screenshotRegion } : {}),
+      ...(record.diagnostics ? { diagnostics: record.diagnostics } : {}),
+      viewport: record.viewport,
+      userAgent: record.userAgent,
+      authorName: record.authorName,
+      authorEmail: record.authorEmail,
+      clientId: record.clientId,
+      resolvedAt: record.resolvedAt,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      annotations: {
+        create: record.annotations.map(({ feedbackId: _feedbackId, ...ann }) => ({
+          ...ann,
+          anchorKey: ann.anchorKey ?? null,
+        })),
+      },
+      // A schema without the SitepingComment model cannot hold the thread.
+      ...(this.include === INCLUDE_ANNOTATIONS_AND_COMMENTS && record.comments.length > 0
+        ? { comments: { create: record.comments.map(({ feedbackId: _feedbackId, ...comment }) => comment) } }
+        : {}),
+    };
+  }
+
   async deleteFeedback(id: string): Promise<void> {
     let deleted: { screenshotUrl?: string | null } | null;
     try {
@@ -901,6 +985,77 @@ export function createSitepingHandler({
   }
 
   /**
+   * Backup export / import expose every column — `clientId` and unredacted
+   * emails included — and import overwrites records, so both demand the API
+   * key even on a method listed in `publicEndpoints`. Without an `apiKey`
+   * they follow the destructive-operation guard.
+   */
+  function authenticateBackup(request: Request): Response | null {
+    if (!apiKey) {
+      return requireAuthForDestructive
+        ? Response.json({ error: "apiKey required for backup export/import" }, { status: 401 })
+        : null;
+    }
+    return isBearerAuthenticated(request) ? null : Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  /** POST `{ projectName, records }` — upsert a backup batch by id. */
+  async function importBackup(request: Request, body: unknown): Promise<Response> {
+    const denied = authenticateBackup(request);
+    if (denied) return denied;
+
+    const parsed = feedbackImportSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json({ errors: formatValidationErrors(parsed.error) }, { status: 400 });
+    }
+    const importFeedbacks = store.importFeedbacks;
+    if (!importFeedbacks) {
+      return Response.json({ error: "Import is not supported by this store." }, { status: 501 });
+    }
+
+    try {
+      const result = await importFeedbacks.call(
+        store,
+        parsed.data.projectName,
+        parsed.data.records.map(reviveFeedbackRecord),
+      );
+      return Response.json(result);
+    } catch (error) {
+      const message = actionableErrorMessage(error);
+      console.error("[siteping] Failed to import feedbacks:", error);
+      return Response.json({ error: message }, { status: 500 });
+    }
+  }
+
+  /** GET `?export=true` — one page of full records (see {@link authenticateBackup}). */
+  async function exportBackup(request: Request, url: URL): Promise<Response> {
+    const denied = authenticateBackup(request);
+    if (denied) return denied;
+
+    const parsed = getQuerySchema.safeParse({
+      projectName: url.searchParams.get("projectName") ?? undefined,
+      page: url.searchParams.get("page") ?? undefined,
+      limit: url.searchParams.get("limit") ?? undefined,
+    });
+    if (!parsed.success) {
+      return Response.json({ errors: formatValidationErrors(parsed.error) }, { status: 400 });
+    }
+
+    try {
+      const { projectName, page, limit } = parsed.data;
+      const { feedbacks, total } = await store.getFeedbacks({ projectName, page, limit });
+      return Response.json(
+        { feedbacks: feedbacks.map(serializeFeedbackRecord), total },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    } catch (error) {
+      const message = actionableErrorMessage(error);
+      console.error("[siteping] Failed to export feedbacks:", error);
+      return Response.json({ error: message }, { status: 500 });
+    }
+  }
+
+  /**
    * Shared prelude for both comment routes: the store must support comments,
    * and the thread must belong to the project the caller named. Returns the
    * error response to send, or `null` when the write may proceed.
@@ -997,6 +1152,11 @@ export function createSitepingHandler({
       const body = await request.json().catch(() => null);
       if (!body) {
         return withCors(Response.json({ error: "Invalid JSON" }, { status: 400 }), corsHeaders);
+      }
+
+      // A backup batch carries `records` — neither a feedback nor a comment has one.
+      if (hasOwn(body, "records")) {
+        return withCors(await importBackup(request, body), corsHeaders);
       }
 
       // One POST endpoint, two resources: a body carrying `feedbackId` is a
@@ -1098,6 +1258,10 @@ export function createSitepingHandler({
       if (authError) return withCors(authError, corsHeaders);
 
       const url = new URL(request.url);
+      if (url.searchParams.get("export") === "true") {
+        return withCors(await exportBackup(request, url), corsHeaders);
+      }
+
       const rawQuery: Record<string, string> = {};
       for (const key of [
         "projectName",

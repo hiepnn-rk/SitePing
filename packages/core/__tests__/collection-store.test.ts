@@ -3,7 +3,9 @@ import {
   createCollectionStore,
   type FeedbackCreateInput,
   type FeedbackRecord,
+  reviveFeedbackRecord,
   StorePersistenceError,
+  serializeFeedbackRecord,
 } from "../src/index.js";
 
 function input(clientId: string): FeedbackCreateInput {
@@ -122,5 +124,66 @@ describe("createCollectionStore — snapshot immutability", () => {
     await expect(store.deleteFeedback(created.id)).rejects.toThrow(StorePersistenceError);
 
     expect((await store.getFeedbacks({ projectName: "p" })).total).toBe(1);
+  });
+});
+
+describe("createCollectionStore — importFeedbacks", () => {
+  it("persists a batch once, and not at all when it fails", async () => {
+    const { store, state, persist } = kvBackend();
+    const created = await store.createFeedback(input("c1"));
+    const record = { ...created, id: "restored", clientId: "restored-client" };
+    persist.mockClear();
+
+    state.failPersist = true;
+    await expect(store.importFeedbacks("p", [record])).rejects.toThrow(StorePersistenceError);
+    expect((await store.getFeedbacks({ projectName: "p" })).total).toBe(1);
+
+    state.failPersist = false;
+    await expect(store.importFeedbacks("p", [record, { ...created, message: "edited" }])).resolves.toEqual({
+      created: 1,
+      updated: 1,
+      skipped: 0,
+    });
+    expect(persist).toHaveBeenCalledTimes(2);
+    expect(state.kv.map((f) => f.message).sort()).toEqual(["edited", "m"]);
+  });
+
+  it("does not persist when every record is skipped", async () => {
+    const { store, persist } = kvBackend();
+    const created = await store.createFeedback(input("c1"));
+    persist.mockClear();
+
+    await expect(store.importFeedbacks("other", [created])).resolves.toEqual({ created: 0, updated: 0, skipped: 1 });
+    expect(persist).not.toHaveBeenCalled();
+  });
+});
+
+describe("serializeFeedbackRecord / reviveFeedbackRecord", () => {
+  it("round-trips every field", async () => {
+    const { store } = kvBackend();
+    const created = await store.createFeedback({
+      ...input("c1"),
+      resolvedAt: undefined,
+    } as FeedbackCreateInput);
+    const record: FeedbackRecord = {
+      ...created,
+      resolvedAt: new Date("2025-03-03T00:00:00.000Z"),
+      comments: [
+        {
+          id: "c",
+          feedbackId: created.id,
+          body: "b",
+          authorName: "a",
+          authorEmail: "",
+          authorRole: "team",
+          createdAt: new Date("2025-03-04T00:00:00.000Z"),
+        },
+      ],
+    };
+
+    const wire = JSON.parse(JSON.stringify(serializeFeedbackRecord(record)));
+    expect(wire.clientId).toBe("c1");
+    expect(wire.comments[0].createdAt).toBe("2025-03-04T00:00:00.000Z");
+    expect(reviveFeedbackRecord(wire)).toEqual(record);
   });
 });

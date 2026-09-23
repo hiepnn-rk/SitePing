@@ -173,5 +173,23 @@ export const de: Translations = {
   // Export controls
   "export.label": "Exportieren",
   "export.csv": "CSV exportieren",
+  "export.database": "Datenbank exportieren",
+  "export.importDatabase": "Datenbank importieren",
   "export.json": "JSON exportieren",
+
+  // Database import
+  "import.confirmTitle": "Feedbacks importieren",
+  "import.confirmMessage":
+    "{create} neue Feedbacks importieren und {update} vorhandene aktualisieren (Abgleich per ID)? Aktualisierte Feedbacks werden durch die Version aus der Datei ersetzt.",
+  "import.confirm": "Importieren",
+  "import.doneTitle": "Import abgeschlossen",
+  "import.doneMessage":
+    "{created} hinzugefügt, {updated} aktualisiert, {skipped} übersprungen, {failed} fehlgeschlagen.",
+  "import.errorTitle": "Import fehlgeschlagen",
+  "import.invalidFile": "Diese Datei ist keine gültige Siteping-Sicherung.",
+  "import.unsupported": "Dieses Backend unterstützt keinen Import von Sicherungen.",
+  "export.errorTitle": "Export fehlgeschlagen",
+  "backup.authRequired": "Der Server benötigt den API-Schlüssel für Export und Import.",
+  "backup.failed": "Der Vorgang ist fehlgeschlagen. Bitte erneut versuchen.",
+  "import.ok": "OK",
 };

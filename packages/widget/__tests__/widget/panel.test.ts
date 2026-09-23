@@ -3,7 +3,7 @@
 import type { FeedbackResponse } from "@siteping/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventBus, type WidgetEvents } from "../../src/events.js";
-import { createT } from "../../src/i18n/index.js";
+import { createT, tWithParams } from "../../src/i18n/index.js";
 import { Panel } from "../../src/panel.js";
 import { buildThemeColors } from "../../src/styles/theme.js";
 import { createShadowRoot } from "../helpers.js";
@@ -3443,6 +3443,40 @@ describe("Panel", () => {
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
 
       HTMLAnchorElement.prototype.click = origAnchorClick;
+    });
+
+    it("lists the database export/import options right under CSV", () => {
+      const labels = [...shadow.querySelectorAll(".sp-export-option-label")].map((node) => node.textContent);
+      expect(labels).toEqual([t("export.csv"), t("export.database"), t("export.importDatabase"), t("export.json")]);
+    });
+
+    it("importing a backup previews new vs updated ids, then upserts after confirmation", async () => {
+      // "fb-1" already exists in the project; "fb-2" is new.
+      apiClient.getFeedbacks.mockResolvedValue({ feedbacks: [makeFeedback({ id: "fb-1" })], total: 1 });
+      const importFeedbacks = vi.fn().mockResolvedValue({ created: 1, updated: 1, skipped: 0 });
+      Object.assign(apiClient, { importFeedbacks });
+      await panel.open();
+
+      const toRecord = (id: string) => ({ ...makeFeedback({ id }), clientId: `client-${id}` });
+      const backup = { format: "siteping-backup", version: 1, feedbacks: [toRecord("fb-1"), toRecord("fb-2")] };
+      const file = new File([JSON.stringify(backup)], "backup.json", { type: "application/json" });
+      const input = shadow.querySelector<HTMLInputElement>(".sp-import-input")!;
+      Object.defineProperty(input, "files", { value: [file], configurable: true });
+      input.dispatchEvent(new Event("change"));
+
+      // An overwrite is involved, so the confirm button is the danger variant.
+      await vi.waitFor(() => expect(shadow.querySelector(".sp-confirm-dialog .sp-btn-danger")).not.toBeNull());
+      expect(shadow.querySelector(".sp-confirm-message")?.textContent).toBe(
+        tWithParams(t, "import.confirmMessage", { create: 1, update: 1 }),
+      );
+      shadow.querySelector<HTMLButtonElement>(".sp-confirm-dialog .sp-btn-danger")!.click();
+
+      await vi.waitFor(() => {
+        expect(importFeedbacks).toHaveBeenCalledWith(backup.feedbacks);
+        expect(shadow.querySelector(".sp-confirm-message")?.textContent).toBe(
+          tWithParams(t, "import.doneMessage", { created: 1, updated: 1, skipped: 0, failed: 0 }),
+        );
+      });
     });
   });
 

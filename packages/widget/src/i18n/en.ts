@@ -172,5 +172,22 @@ export const en: Translations = {
   // Export controls
   "export.label": "Export",
   "export.csv": "Export CSV",
+  "export.database": "Export database",
+  "export.importDatabase": "Import database",
   "export.json": "Export JSON",
+
+  // Database import
+  "import.confirmTitle": "Import feedbacks",
+  "import.confirmMessage":
+    "Import {create} new feedbacks and update {update} existing ones (matched by id)? Updated feedbacks are overwritten with the file's version.",
+  "import.confirm": "Import",
+  "import.doneTitle": "Import complete",
+  "import.doneMessage": "{created} added, {updated} updated, {skipped} skipped, {failed} failed.",
+  "import.errorTitle": "Import failed",
+  "import.invalidFile": "This file is not a valid Siteping backup.",
+  "import.unsupported": "This backend does not support importing backups.",
+  "export.errorTitle": "Export failed",
+  "backup.authRequired": "The server requires the API key to export or import a backup.",
+  "backup.failed": "The operation failed. Please try again.",
+  "import.ok": "OK",
 };

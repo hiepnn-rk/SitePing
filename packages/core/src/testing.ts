@@ -15,7 +15,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import type { DiagnosticsSnapshot, FeedbackCreateInput, SitepingStore } from "./types.js";
+import type { DiagnosticsSnapshot, FeedbackCreateInput, FeedbackRecord, SitepingStore } from "./types.js";
 import { isStoreDuplicate, StoreNotFoundError } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -681,6 +681,117 @@ export function testSitepingStore(
 
         const { feedbacks } = await store.getFeedbacks({ projectName: "test-project" });
         expect(feedbacks).toHaveLength(0);
+      });
+    });
+
+    // ------------------------------------------------------------------
+    // importFeedbacks (optional contract member)
+    // ------------------------------------------------------------------
+
+    describe("importFeedbacks", () => {
+      function backupRecord(overrides: Partial<FeedbackRecord> = {}): FeedbackRecord {
+        const id = overrides.id ?? "imported-1";
+        return {
+          id,
+          projectName: "source-project",
+          type: "bug",
+          message: "Restored from a backup",
+          status: "wont_fix",
+          url: "https://example.com/restored",
+          urlPattern: "/restored",
+          viewport: "1280x800",
+          userAgent: "Backup/1.0",
+          authorName: "Alice",
+          authorEmail: "alice@test.com",
+          clientId: `${id}-client`,
+          resolvedAt: new Date("2025-02-02T00:00:00.000Z"),
+          createdAt: new Date("2025-01-01T00:00:00.000Z"),
+          updatedAt: new Date("2025-02-02T00:00:00.000Z"),
+          annotations: [
+            {
+              ...MINIMAL_ANNOTATION,
+              id: `${id}-ann`,
+              feedbackId: id,
+              elementId: null,
+              anchorKey: null,
+              createdAt: new Date("2025-01-01T00:00:00.000Z"),
+            },
+          ],
+          comments: [],
+          screenshotUrl: null,
+          screenshotRegion: null,
+          diagnostics: null,
+          ...overrides,
+        };
+      }
+
+      it("creates unknown ids verbatim — id, clientId and timestamps kept", async () => {
+        if (!store.importFeedbacks) return;
+
+        const result = await store.importFeedbacks("test-project", [backupRecord()]);
+        expect(result).toEqual({ created: 1, updated: 0, skipped: 0 });
+
+        const restored = await store.findByClientId("imported-1-client");
+        expect(restored?.id).toBe("imported-1");
+        expect(restored?.projectName).toBe("test-project");
+        expect(restored?.status).toBe("wont_fix");
+        expect(restored?.createdAt.toISOString()).toBe("2025-01-01T00:00:00.000Z");
+        expect(restored?.resolvedAt?.toISOString()).toBe("2025-02-02T00:00:00.000Z");
+        expect(restored?.annotations).toHaveLength(1);
+      });
+
+      it("updates a known id in place, replacing every field", async () => {
+        if (!store.importFeedbacks) return;
+
+        await store.importFeedbacks("test-project", [backupRecord()]);
+        const result = await store.importFeedbacks("test-project", [
+          backupRecord({ message: "Edited in the backup", status: "open", resolvedAt: null, annotations: [] }),
+        ]);
+        expect(result).toEqual({ created: 0, updated: 1, skipped: 0 });
+
+        const { feedbacks, total } = await store.getFeedbacks({ projectName: "test-project" });
+        expect(total).toBe(1);
+        expect(feedbacks[0]?.message).toBe("Edited in the backup");
+        expect(feedbacks[0]?.status).toBe("open");
+        expect(feedbacks[0]?.resolvedAt).toBeNull();
+        expect(feedbacks[0]?.annotations).toEqual([]);
+      });
+
+      it("skips an id owned by another project and a clientId owned by another record", async () => {
+        if (!store.importFeedbacks) return;
+
+        await store.importFeedbacks("other-project", [backupRecord()]);
+        const existing = await store.createFeedback(createInput({ clientId: "taken-client" }));
+
+        const result = await store.importFeedbacks("test-project", [
+          backupRecord(),
+          backupRecord({ id: "imported-2", clientId: "taken-client" }),
+        ]);
+        expect(result).toEqual({ created: 0, updated: 0, skipped: 2 });
+
+        const { feedbacks } = await store.getFeedbacks({ projectName: "other-project" });
+        expect(feedbacks[0]?.message).toBe("Restored from a backup");
+        expect((await store.findByClientId("taken-client"))?.id).toBe(existing.id);
+      });
+
+      it("restores the comment thread when comments are supported", async () => {
+        if (!store.importFeedbacks || !store.addComment) return;
+
+        const comment = {
+          id: "imported-1-c1",
+          feedbackId: "imported-1",
+          body: "Restored reply",
+          authorName: "Bob",
+          authorEmail: "",
+          authorRole: "team" as const,
+          createdAt: new Date("2025-01-02T00:00:00.000Z"),
+        };
+        await store.importFeedbacks("test-project", [backupRecord({ comments: [comment] })]);
+
+        const restored = await store.findByClientId("imported-1-client");
+        expect(restored?.comments.map((c) => [c.id, c.body, c.authorRole])).toEqual([
+          ["imported-1-c1", "Restored reply", "team"],
+        ]);
       });
     });
 

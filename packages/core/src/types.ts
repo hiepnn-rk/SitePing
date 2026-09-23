@@ -972,7 +972,41 @@ export interface SitepingStore {
    * or the comment does not belong to it.
    */
   deleteComment?(feedbackId: string, commentId: string): Promise<void>;
+  /**
+   * Optional — restore full records (a backup made from
+   * {@link FeedbackBackupRecord}s) into `projectName`, upserting by `id`:
+   *
+   * - `id` already in `projectName` → **updated**: every field is replaced by
+   *   the imported one, `annotations` and `comments` included (wholesale).
+   * - `id` unknown → **created** with the imported `id`, `clientId` and
+   *   timestamps, verbatim.
+   * - `id` owned by another project, or `clientId` owned by a different
+   *   record → **skipped** (never moved or merged across that boundary).
+   *
+   * Each record's `projectName` is ignored in favour of the argument.
+   * `screenshotUrl` is persisted as given — no `ScreenshotStorage` upload.
+   * Absence is the capability signal, like {@link SitepingStore.addComment}:
+   * handlers answer 501 and clients report import as unsupported.
+   */
+  importFeedbacks?(projectName: string, records: FeedbackRecord[]): Promise<FeedbackImportResult>;
 }
+
+/** Outcome of {@link SitepingStore.importFeedbacks}, counted per record. */
+export interface FeedbackImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+}
+
+/**
+ * A feedback exactly as stored — every column, `clientId` and unredacted
+ * emails included — with dates as ISO strings. The unit of a backup file and
+ * of the import / export wire; never served by the public `GET`.
+ */
+export type FeedbackBackupRecord = Prettify<Serialized<FeedbackRecord>>;
+
+/** Largest `records` batch accepted by one import call (screenshots make records heavy). */
+export const FEEDBACK_IMPORT_BATCH_SIZE = 25;
 
 /** Payload sent from the widget to the server when submitting feedback. */
 export interface FeedbackPayload {

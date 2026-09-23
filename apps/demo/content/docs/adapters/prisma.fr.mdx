@@ -71,6 +71,8 @@ Un endpoint, cinq méthodes. Tous les corps sont en JSON.
 
 **Corps des commentaires :** `POST { feedbackId, projectName, body, authorName, authorEmail, authorRole }` ajoute au fil (`201` + le commentaire) ; `DELETE { feedbackId, commentId, projectName }` en supprime un (et exige la clé d'API, comme tout appel destructif). Un store sans support des commentaires répond `501` — voir [Commentaires](/fr/docs/comments).
 
+**Export / import de sauvegarde :** `GET ?export=true&projectName=…&page=…&limit=…` renvoie `{ feedbacks, total }` sous forme d'**enregistrements complets** — `clientId` et e-mails non masqués compris. `POST { projectName, records }` (25 enregistrements max par appel) les fusionne par `id` et répond `200 { created, updated, skipped }` ; le `PrismaStore` exécute chaque lot dans `$transaction`. Les deux exigent toujours la clé d'API, même si `GET`/`POST` figurent dans `publicEndpoints` ; sans `apiKey`, ils suivent `requireAuthForDestructive`. Les entrées **Exporter la base** / **Importer une base** du widget appellent ces routes : en mode HTTP, le widget a donc besoin de `apiKey` pour s'en servir.
+
 **Erreurs :** JSON invalide → `400 { error }` ; échec de validation → `400 { errors: [{ field, message }] }` ; id inconnu → `404` ; commentaires non gérés par le store → `501 { error }` ; `clientId` appartenant à un autre projet → `409 { error }` ; table manquante → `500` avec une indication d'exécuter `npx prisma db push` ; tout le reste → `500 { error: "Internal server error" }`.
 
 ### Les limites de validation à connaître

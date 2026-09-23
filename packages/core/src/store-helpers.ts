@@ -20,7 +20,9 @@ import type {
   AnnotationRecord,
   CommentCreateInput,
   CommentRecord,
+  FeedbackBackupRecord,
   FeedbackCreateInput,
+  FeedbackImportResult,
   FeedbackPage,
   FeedbackQuery,
   FeedbackRecord,
@@ -128,6 +130,83 @@ export function buildFeedbackRecord(
 }
 
 // ---------------------------------------------------------------------------
+// Backup records — full-fidelity export / import
+// ---------------------------------------------------------------------------
+
+/** `FeedbackRecord` → `FeedbackBackupRecord`: every field kept, dates as ISO strings. */
+export function serializeFeedbackRecord(record: FeedbackRecord): FeedbackBackupRecord {
+  return {
+    ...record,
+    urlPattern: record.urlPattern ?? null,
+    resolvedAt: record.resolvedAt?.toISOString() ?? null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+    annotations: record.annotations.map((a) => ({ ...a, createdAt: a.createdAt.toISOString() })),
+    // May be absent on a snapshot written before comments existed.
+    comments: (record.comments ?? []).map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })),
+    screenshotUrl: record.screenshotUrl ?? null,
+    screenshotRegion: record.screenshotRegion ?? null,
+    diagnostics: record.diagnostics ?? null,
+  };
+}
+
+/** Inverse of {@link serializeFeedbackRecord} — child `feedbackId`s are re-pointed at the record. */
+export function reviveFeedbackRecord(record: FeedbackBackupRecord): FeedbackRecord {
+  return {
+    ...record,
+    resolvedAt: record.resolvedAt === null ? null : new Date(record.resolvedAt),
+    createdAt: new Date(record.createdAt),
+    updatedAt: new Date(record.updatedAt),
+    annotations: record.annotations.map((a) => ({ ...a, feedbackId: record.id, createdAt: new Date(a.createdAt) })),
+    comments: record.comments.map((c) => ({ ...c, feedbackId: record.id, createdAt: new Date(c.createdAt) })),
+  };
+}
+
+/**
+ * The upsert rules of {@link SitepingStore.importFeedbacks} over a snapshot:
+ * returns the next snapshot (a new array) and the per-record outcome. Pure —
+ * shared by the collection engine and usable by any snapshot adapter.
+ */
+export function mergeImportedFeedbacks(
+  current: readonly FeedbackRecord[],
+  projectName: string,
+  records: readonly FeedbackRecord[],
+): { next: FeedbackRecord[]; result: FeedbackImportResult } {
+  const result: FeedbackImportResult = { created: 0, updated: 0, skipped: 0 };
+  const next = [...current];
+  const indexById = new Map(next.map((f, i) => [f.id, i]));
+  const idByClientId = new Map(next.map((f) => [f.clientId, f.id]));
+
+  for (const incoming of records) {
+    const record: FeedbackRecord = { ...incoming, projectName };
+    const owner = idByClientId.get(record.clientId);
+    if (owner !== undefined && owner !== record.id) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const index = indexById.get(record.id);
+    if (index === undefined) {
+      indexById.set(record.id, next.length);
+      next.push(record);
+      result.created += 1;
+    } else {
+      const existing = next[index] as FeedbackRecord;
+      if (existing.projectName !== projectName) {
+        result.skipped += 1;
+        continue;
+      }
+      idByClientId.delete(existing.clientId);
+      next[index] = record;
+      result.updated += 1;
+    }
+    idByClientId.set(record.clientId, record.id);
+  }
+
+  return { next, result };
+}
+
+// ---------------------------------------------------------------------------
 // Collection-store engine
 // ---------------------------------------------------------------------------
 
@@ -160,7 +239,7 @@ export interface CollectionStoreBackend {
  * what `createCollectionStore` returns.
  */
 export type CollectionStore = SitepingStore &
-  Required<Pick<SitepingStore, "verifyProjectOwnership" | "addComment" | "deleteComment">>;
+  Required<Pick<SitepingStore, "verifyProjectOwnership" | "addComment" | "deleteComment" | "importFeedbacks">>;
 
 /**
  * Build a fully conformant `SitepingStore` on top of a snapshot backend.
@@ -288,6 +367,13 @@ export function createCollectionStore(backend: CollectionStoreBackend): Collecti
 
       const updated: FeedbackRecord = { ...current, comments: comments.filter((c) => c.id !== commentId) };
       await backend.persist(feedbacks.map((f) => (f === current ? updated : f)));
+    },
+
+    async importFeedbacks(projectName: string, records: FeedbackRecord[]): Promise<FeedbackImportResult> {
+      const { next, result } = mergeImportedFeedbacks(await backend.load(), projectName, records);
+      // One persist for the whole batch: it lands entirely or not at all.
+      if (result.created + result.updated > 0) await backend.persist(next);
+      return result;
     },
   };
 }

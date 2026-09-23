@@ -13,6 +13,10 @@ const ICON_CSV = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 
 const ICON_JSON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H6a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h2"/><path d="M16 3h2a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-2"/></svg>`;
 
+const ICON_DATABASE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>`;
+
+const ICON_IMPORT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`;
+
 // ---------------------------------------------------------------------------
 // CSS
 // ---------------------------------------------------------------------------
@@ -219,6 +223,16 @@ export function downloadFile(content: string, filename: string, mimeType: string
 // ExportButton component
 // ---------------------------------------------------------------------------
 
+/**
+ * Full-database actions shown under "Export CSV". Unlike CSV/JSON (which
+ * dump the list currently loaded in the panel), these cover every feedback
+ * of the project — the owner (the panel) does the fetching and writing.
+ */
+export interface BackupActions {
+  onExport: () => void;
+  onImport: (file: File) => void;
+}
+
 export class ExportButton {
   readonly element: HTMLElement;
 
@@ -230,6 +244,7 @@ export class ExportButton {
     _colors: ThemeColors,
     private readonly getFeedbacks: () => FeedbackResponse[],
     t: TFunction,
+    backup?: BackupActions,
   ) {
     // Wrapper for relative positioning of the menu
     this.element = el("div", { style: "position: relative; display: inline-flex;" });
@@ -263,10 +278,31 @@ export class ExportButton {
     });
 
     this.menu.appendChild(csvOption);
+    let fileInput: HTMLInputElement | null = null;
+    if (backup) {
+      // Hidden picker — lives inside the shadow tree, `click()` opens the OS dialog.
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json,application/json";
+      input.className = "sp-import-input";
+      input.style.display = "none";
+      input.addEventListener("change", () => {
+        const file = input.files?.[0];
+        // Reset so picking the same file again still fires `change`.
+        input.value = "";
+        if (file) backup.onImport(file);
+      });
+      fileInput = input;
+
+      this.menu.appendChild(this.createOption(ICON_DATABASE, t("export.database"), () => backup.onExport()));
+      this.menu.appendChild(this.createOption(ICON_IMPORT, t("export.importDatabase"), () => input.click()));
+    }
     this.menu.appendChild(jsonOption);
 
     this.element.appendChild(btn);
     this.element.appendChild(this.menu);
+    // Last in DOM order so it never becomes the panel's first focusable.
+    if (fileInput) this.element.appendChild(fileInput);
 
     // Close on outside click
     this.onDocumentClick = (e: MouseEvent) => {

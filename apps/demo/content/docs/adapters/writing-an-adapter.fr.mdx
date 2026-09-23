@@ -148,6 +148,12 @@ async deleteComment(feedbackId: string, commentId: string): Promise<void> {
 
 Les commentaires reviennent avec le feedback lui-même (`FeedbackRecord.comments`, du plus ancien au plus récent) : `getFeedbacks` et `findByClientId` doivent donc inclure le fil — `[]` quand il n'y en a pas. `createCollectionStore` gère tout ça pour les backends snapshot, et `buildCommentRecord(input, { id, feedbackId })` construit l'enregistrement pour les backends à requêtes.
 
+## L'import de sauvegarde est facultatif
+
+`importFeedbacks(projectName, records)` restaure des `FeedbackRecord` complets — la sauvegarde écrite par **Exporter la base** dans le widget — et les fusionne **par `id`** : un id déjà présent dans `projectName` est remplacé en entier (annotations et commentaires compris), un id inconnu est créé avec son `id`, son `clientId` et ses dates tels quels, et un enregistrement dont l'id appartient à un autre projet, ou dont le `clientId` appartient à un autre enregistrement, est ignoré. La méthode renvoie `{ created, updated, skipped }`. Sans elle, le handler répond `501` et le widget signale que l'import n'est pas pris en charge.
+
+Les backends snapshot l'obtiennent via `createCollectionStore` (un seul `persist` par lot). Les backends à requêtes peuvent reprendre les mêmes règles : `mergeImportedFeedbacks(current, projectName, records)` est la fusion pure, et `serializeFeedbackRecord` / `reviveFeedbackRecord` convertissent depuis et vers la forme à dates ISO de la sauvegarde.
+
 ## La preuve : la suite de conformité
 
 La même suite que celle des adapters officiels. Pointez-la vers une factory qui renvoie un store neuf et vide, et elle exerce tout le contrat — 50 tests :

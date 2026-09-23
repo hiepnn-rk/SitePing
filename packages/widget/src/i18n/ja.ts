@@ -172,5 +172,22 @@ export const ja: Translations = {
   // Export controls
   "export.label": "出力",
   "export.csv": "CSV をエクスポート",
+  "export.database": "データベースをエクスポート",
+  "export.importDatabase": "データベースをインポート",
   "export.json": "JSON をエクスポート",
+
+  // Database import
+  "import.confirmTitle": "フィードバックをインポート",
+  "import.confirmMessage":
+    "新規 {create} 件を追加し、既存 {update} 件を更新しますか？（ID で照合）更新対象はファイルの内容で上書きされます。",
+  "import.confirm": "インポート",
+  "import.doneTitle": "インポート完了",
+  "import.doneMessage": "追加 {created} 件、更新 {updated} 件、スキップ {skipped} 件、失敗 {failed} 件。",
+  "import.errorTitle": "インポートに失敗しました",
+  "import.invalidFile": "このファイルは有効な Siteping バックアップではありません。",
+  "import.unsupported": "このバックエンドはバックアップのインポートに対応していません。",
+  "export.errorTitle": "エクスポートに失敗しました",
+  "backup.authRequired": "エクスポート・インポートにはサーバーの API キーが必要です。",
+  "backup.failed": "処理に失敗しました。もう一度お試しください。",
+  "import.ok": "OK",
 };

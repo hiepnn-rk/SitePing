@@ -4,13 +4,17 @@ import {
   type CommentCreateInput,
   type CommentRecord,
   type CommentResponse,
+  type FeedbackBackupRecord,
+  type FeedbackImportResult,
   type FeedbackPayload,
   type FeedbackRecord,
   type FeedbackResponse,
   type FeedbackResponseList,
   flattenAnnotation,
+  reviveFeedbackRecord,
   type SitepingStore,
   SitepingUnsupportedError,
+  serializeFeedbackRecord,
   toFeedbackUpdate,
 } from "@siteping/core";
 import type { GetFeedbacksOptions, WidgetClient } from "./api-client.js";
@@ -92,6 +96,19 @@ export class StoreClient implements WidgetClient {
       throw new SitepingUnsupportedError("Failed to post comment: this store does not support comments");
     }
     return toCommentResponse(await add.call(this.store, feedbackId, input));
+  }
+
+  async exportFeedbacks(page: number, limit: number): Promise<{ feedbacks: FeedbackBackupRecord[]; total: number }> {
+    const { feedbacks, total } = await this.store.getFeedbacks({ projectName: this.projectName, page, limit });
+    return { feedbacks: feedbacks.map(serializeFeedbackRecord), total };
+  }
+
+  async importFeedbacks(records: FeedbackBackupRecord[]): Promise<FeedbackImportResult> {
+    const importFeedbacks = this.store.importFeedbacks;
+    if (!importFeedbacks) {
+      throw new SitepingUnsupportedError("Failed to import feedbacks: this store does not support import");
+    }
+    return importFeedbacks.call(this.store, this.projectName, records.map(reviveFeedbackRecord));
   }
 }
 

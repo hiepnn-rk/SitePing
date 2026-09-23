@@ -2,6 +2,7 @@ import type {
   AssertEqual,
   CommentDeletePayload,
   CommentPayload,
+  FeedbackBackupRecord,
   FeedbackPayload,
   FeedbackStatus,
   FeedbackType,
@@ -11,6 +12,7 @@ import {
   COMMENT_AUTHOR_ROLES,
   CONSOLE_DIAGNOSTIC_LEVELS,
   EMAIL_PATTERN,
+  FEEDBACK_IMPORT_BATCH_SIZE,
   FEEDBACK_STATUSES,
   FEEDBACK_TYPES,
 } from "@siteping/core";
@@ -173,6 +175,91 @@ export const commentDeleteSchema = z.object({
   projectName: z.string().min(1).max(200),
 });
 
+// ---------------------------------------------------------------------------
+// Backup import — full records, ids and timestamps included
+// ---------------------------------------------------------------------------
+
+const idSchema = z.string().min(1).max(200);
+const isoDateSchema = z.iso.datetime({ offset: true });
+
+const annotationRecordSchema = z.object({
+  id: idSchema,
+  feedbackId: z.string().max(200),
+  cssSelector: z.string().min(1).max(2000),
+  xpath: z.string().min(1).max(2000),
+  textSnippet: z.string().max(500),
+  elementTag: z.string().min(1).max(100),
+  elementId: z.string().max(500).nullable(),
+  textPrefix: z.string().max(200),
+  textSuffix: z.string().max(200),
+  fingerprint: z.string().max(200),
+  neighborText: z.string().max(500),
+  anchorKey: z.string().max(200).nullable(),
+  xPct: z.number().min(0).max(1),
+  yPct: z.number().min(0).max(1),
+  wPct: z.number().min(0).max(1),
+  hPct: z.number().min(0).max(1),
+  scrollX: z.number().min(0),
+  scrollY: z.number().min(0),
+  viewportW: z.number().int().positive(),
+  viewportH: z.number().int().positive(),
+  devicePixelRatio: z.number().positive(),
+  createdAt: isoDateSchema,
+});
+
+const commentRecordSchema = z.object({
+  id: idSchema,
+  feedbackId: z.string().max(200),
+  body: z.string().min(1).max(5000),
+  authorName: z.string().min(1).max(200),
+  authorEmail: authorEmailSchema,
+  authorRole: z.enum(COMMENT_AUTHOR_ROLES),
+  createdAt: isoDateSchema,
+});
+
+/**
+ * One backed-up feedback. `screenshotUrl` is persisted verbatim (no storage
+ * upload), so only inline images and http(s) URLs are accepted — anything
+ * else would be rendered as an `<img src>` by the widget and the dashboard.
+ */
+export const feedbackBackupRecordSchema = z.object({
+  id: idSchema,
+  projectName: z.string().min(1).max(200),
+  type: z.enum(FEEDBACK_TYPES),
+  message: z.string().min(1).max(5000),
+  status: z.enum(FEEDBACK_STATUSES),
+  url: z.string().trim().min(1).max(2000),
+  urlPattern: z.string().max(2000).nullable(),
+  viewport: z.string().min(1).max(50),
+  userAgent: z.string().min(1).max(500),
+  authorName: z.string().min(1).max(200),
+  authorEmail: authorEmailSchema,
+  // Same alphabet as the create payload — see `feedbackCreateSchema.clientId`.
+  clientId: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[a-zA-Z0-9_-]+$/, "clientId must be alphanumeric (a-z, A-Z, 0-9, _, -)"),
+  resolvedAt: isoDateSchema.nullable(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+  annotations: z.array(annotationRecordSchema).max(50),
+  comments: z.array(commentRecordSchema).max(500),
+  screenshotUrl: z
+    .string()
+    .max(1_500_000)
+    .regex(/^(data:image\/(jpeg|png|webp);base64,|https?:\/\/)/, "screenshotUrl must be a data:image/* or http(s) URL")
+    .nullable(),
+  screenshotRegion: screenshotRegionSchema.nullable(),
+  diagnostics: diagnosticsSchema.nullable(),
+});
+
+/** Import payload — `records` is what routes a POST to the import resource. */
+export const feedbackImportSchema = z.object({
+  projectName: z.string().min(1).max(200),
+  records: z.array(feedbackBackupRecordSchema).min(1).max(FEEDBACK_IMPORT_BATCH_SIZE),
+});
+
 export const feedbackPatchSchema = z.object({
   id: z.string().min(1),
   projectName: z.string().min(1).max(200),
@@ -288,6 +375,12 @@ const _commentDeleteSchemaMatchesPayload: AssertEqual<
   CommentDeletePayload
 > = true;
 void _commentDeleteSchemaMatchesPayload;
+// The backup record is the stored record verbatim — lock it the same way.
+const _backupSchemaMatchesRecord: AssertEqual<
+  Prettify<zod.z.infer<typeof feedbackBackupRecordSchema>>,
+  FeedbackBackupRecord
+> = true;
+void _backupSchemaMatchesRecord;
 
 /** Single validation issue extracted from a `ZodError`. */
 export interface ValidationIssue {

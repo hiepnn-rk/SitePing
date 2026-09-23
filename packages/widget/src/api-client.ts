@@ -2,6 +2,8 @@ import {
   type CommentCreateInput,
   type CommentResponse,
   errorFromResponse,
+  type FeedbackBackupRecord,
+  type FeedbackImportResult,
   type FeedbackPayload,
   type FeedbackQuery,
   type FeedbackResponse,
@@ -39,6 +41,17 @@ export interface WidgetClient {
   readonly supportsComments: boolean;
   /** Append a comment to a feedback's thread. */
   addComment(feedbackId: string, input: CommentCreateInput): Promise<CommentResponse>;
+  /**
+   * One page of full records for a backup — every column, `clientId` and
+   * emails included, no filters. HTTP mode needs the API key.
+   */
+  exportFeedbacks(page: number, limit: number): Promise<{ feedbacks: FeedbackBackupRecord[]; total: number }>;
+  /**
+   * Upsert a batch of backup records by `id` (at most
+   * `FEEDBACK_IMPORT_BATCH_SIZE`). Throws `SitepingUnsupportedError` when the
+   * backend cannot import.
+   */
+  importFeedbacks(records: FeedbackBackupRecord[]): Promise<FeedbackImportResult>;
 }
 
 /**
@@ -428,6 +441,51 @@ export class ApiClient implements WidgetClient {
     if (!response.ok) {
       throw await errorFromResponse(response, "Failed to delete all feedbacks");
     }
+  }
+
+  async exportFeedbacks(page: number, limit: number): Promise<{ feedbacks: FeedbackBackupRecord[]; total: number }> {
+    const params = new URLSearchParams({
+      export: "true",
+      projectName: this.projectName,
+      page: String(page),
+      limit: String(limit),
+    });
+    let response: Response;
+    try {
+      const headers = await buildRequestHeaders(this.auth, false);
+      response = await resilientFetch(`${this.endpoint}?${params.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      });
+    } catch (error) {
+      throw networkErrorFromException(error, "Failed to export feedbacks");
+    }
+
+    if (!response.ok) {
+      throw await errorFromResponse(response, "Failed to export feedbacks");
+    }
+
+    return parseJsonAs<{ feedbacks: FeedbackBackupRecord[]; total: number }>(response);
+  }
+
+  async importFeedbacks(records: FeedbackBackupRecord[]): Promise<FeedbackImportResult> {
+    let response: Response;
+    try {
+      response = await resilientFetch(this.endpoint, {
+        method: "POST",
+        headers: await buildRequestHeaders(this.auth, true),
+        body: JSON.stringify({ projectName: this.projectName, records }),
+      });
+    } catch (error) {
+      throw networkErrorFromException(error, "Failed to import feedbacks");
+    }
+
+    if (!response.ok) {
+      throw await errorFromResponse(response, "Failed to import feedbacks");
+    }
+
+    return parseJsonAs<FeedbackImportResult>(response);
   }
 
   /**

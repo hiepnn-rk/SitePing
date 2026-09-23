@@ -177,7 +177,28 @@ export interface Translations {
   // Export controls
   "export.label": string;
   "export.csv": string;
+  /** Menu item: download every feedback of the project as a backup file. */
+  "export.database": string;
+  /** Menu item: restore a backup file into the project. */
+  "export.importDatabase": string;
   "export.json": string;
+
+  // Database import
+  "import.confirmTitle": string;
+  /** `{create}` / `{update}` = records whose id is new / already in the project. */
+  "import.confirmMessage": string;
+  "import.confirm": string;
+  "import.doneTitle": string;
+  /** `{created}`, `{updated}`, `{skipped}`, `{failed}` = counts from the import run. */
+  "import.doneMessage": string;
+  "import.errorTitle": string;
+  "import.invalidFile": string;
+  "import.unsupported": string;
+  "export.errorTitle": string;
+  /** Export/import answered 401/403 — the handler needs the Bearer key for both. */
+  "backup.authRequired": string;
+  "backup.failed": string;
+  "import.ok": string;
 }
 
 /** Every valid key of `Translations` as a string-literal union. */

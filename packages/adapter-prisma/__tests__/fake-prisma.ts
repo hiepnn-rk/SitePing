@@ -25,7 +25,10 @@ interface Include {
 }
 
 interface CreateArgs {
-  data: Record<string, unknown> & { annotations?: { create: Record<string, unknown>[] } };
+  data: Record<string, unknown> & {
+    annotations?: { create: Record<string, unknown>[] };
+    comments?: { create: Record<string, unknown>[] };
+  };
   include?: Include;
 }
 
@@ -77,10 +80,15 @@ export class FakeCommentDelegate {
   private seq = 0;
 
   async create({ data }: { data: Record<string, unknown> }): Promise<CommentRecord> {
+    return this.insert(data as unknown as CommentRecord);
+  }
+
+  /** Shared by `create` and nested `comments: { create }` — explicit id/createdAt win, like Prisma. */
+  insert(data: Partial<CommentRecord> & Omit<CommentRecord, "id" | "createdAt">): CommentRecord {
     const row: CommentRecord = {
-      ...(data as unknown as CommentRecord),
-      id: `cm-${++this.seq}`,
-      createdAt: new Date(),
+      ...data,
+      id: data.id ?? `cm-${++this.seq}`,
+      createdAt: data.createdAt ?? new Date(),
     };
     this.rows.push(row);
     return structuredClone(row);
@@ -148,29 +156,36 @@ export class FakeFeedbackDelegate {
 
   async create({ data, include }: CreateArgs): Promise<unknown> {
     if (this.rows.some((r) => r.clientId === data.clientId)) throw prismaError("P2002");
+    // Like Prisma: explicit `id` / timestamps win over the column defaults.
+    if (typeof data.id === "string" && this.rows.some((r) => r.id === data.id)) throw prismaError("P2002");
     const now = new Date();
-    const id = `fb-${++this.seq}`;
+    const id = (data.id as string | undefined) ?? `fb-${++this.seq}`;
     const annotations = (data.annotations?.create ?? []).map((a) => ({
       ...(a as unknown as FeedbackRecord["annotations"][number]),
-      id: `ann-${++this.seq}`,
+      id: (a.id as string | undefined) ?? `ann-${++this.seq}`,
       feedbackId: id,
       elementId: (a.elementId as string | undefined) ?? null,
       anchorKey: (a.anchorKey as string | null | undefined) ?? null,
-      createdAt: now,
+      createdAt: (a.createdAt as Date | undefined) ?? now,
     }));
+    const { comments: nestedComments, ...scalars } = data;
     const row: FeedbackRecord = {
-      ...(data as unknown as FeedbackRecord),
+      ...(scalars as unknown as FeedbackRecord),
       id,
       urlPattern: (data.urlPattern as string | null | undefined) ?? null,
       screenshotUrl: (data.screenshotUrl as string | null | undefined) ?? null,
       screenshotRegion: (data.screenshotRegion as FeedbackRecord["screenshotRegion"]) ?? null,
       diagnostics: (data.diagnostics as FeedbackRecord["diagnostics"]) ?? null,
-      resolvedAt: null,
-      createdAt: now,
-      updatedAt: now,
+      resolvedAt: (data.resolvedAt as Date | null | undefined) ?? null,
+      createdAt: (data.createdAt as Date | undefined) ?? now,
+      updatedAt: (data.updatedAt as Date | undefined) ?? now,
       annotations,
     };
     this.rows.push(row);
+    for (const comment of nestedComments?.create ?? []) {
+      if (!this.comments) throw new Error("PrismaClientValidationError: Unknown argument `comments`");
+      this.comments.insert({ ...(comment as unknown as CommentRecord), feedbackId: id });
+    }
     return this.withInclude(row, include);
   }
 
@@ -189,12 +204,15 @@ export class FakeFeedbackDelegate {
   async findUnique({
     where,
     include,
+    select,
   }: {
     where: { id?: string; clientId?: string };
     include?: Include;
+    select?: Record<string, boolean>;
   }): Promise<unknown | null> {
     const row = this.rows.find((r) => (where.id !== undefined ? r.id === where.id : r.clientId === where.clientId));
-    return row ? this.withInclude(row, include) : null;
+    if (!row) return null;
+    return select ? pick(row, select) : this.withInclude(row, include);
   }
 
   async update({

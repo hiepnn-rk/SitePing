@@ -172,5 +172,22 @@ export const ru: Translations = {
   // Export controls
   "export.label": "Экспорт",
   "export.csv": "Экспорт в CSV",
+  "export.database": "Экспорт базы данных",
+  "export.importDatabase": "Импорт базы данных",
   "export.json": "Экспорт в JSON",
+
+  // Database import
+  "import.confirmTitle": "Импорт отзывов",
+  "import.confirmMessage":
+    "Добавить новых отзывов: {create}, обновить существующих: {update} (сопоставление по id)? Обновлённые отзывы будут заменены версией из файла.",
+  "import.confirm": "Импортировать",
+  "import.doneTitle": "Импорт завершён",
+  "import.doneMessage": "Добавлено: {created}, обновлено: {updated}, пропущено: {skipped}, ошибок: {failed}.",
+  "import.errorTitle": "Ошибка импорта",
+  "import.invalidFile": "Этот файл не является корректной резервной копией Siteping.",
+  "import.unsupported": "Этот бэкенд не поддерживает импорт резервных копий.",
+  "export.errorTitle": "Ошибка экспорта",
+  "backup.authRequired": "Для экспорта и импорта сервер требует API-ключ.",
+  "backup.failed": "Операция не удалась. Попробуйте ещё раз.",
+  "import.ok": "ОК",
 };
